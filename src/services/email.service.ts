@@ -57,8 +57,8 @@ export async function sendNotificationToRescuers(report: ReportNotificationData)
     }
 
     const recipientEmails = snapshot.docs
-      .map(doc => doc.data().email)
-      .filter(email => Boolean(email));
+      .map((doc: any) => doc.data().email)
+      .filter((email: any) => Boolean(email));
 
     if (recipientEmails.length === 0) {
       console.log('ℹ️ Egyik mentő profiljához sincs e-mail cím rendelve.');

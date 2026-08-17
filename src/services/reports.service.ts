@@ -24,22 +24,22 @@ export const createReport = async (data: CreateReportDTO): Promise<Report> => {
   return { id: docRef.id, ...newReport };
 };
 
-// 2. Bejelentések listázása (Szűrés státusz szerint)
+// 2. Bejelentések listázása
 export const getReports = async (statusFilter?: ReportStatus) => {
-  let query: FirebaseFirestore.Query = adminDb.collection(COLLECTION_NAME);
+  let query: any = adminDb.collection(COLLECTION_NAME);
 
   if (statusFilter) {
     query = query.where('status', '==', statusFilter);
   }
 
   const snapshot = await query.orderBy('createdAt', 'desc').get();
-  return snapshot.docs.map(doc => ({
+  return snapshot.docs.map((doc: any) => ({
     id: doc.id,
     ...doc.data()
   }));
 };
 
-// 3. Ügy elvállalása, státuszmódosítás és részletes lezárás fotóval
+// 3. Státusz módosítása és lezárás fotóval
 export const updateReportStatus = async (
   reportId: string, 
   status: ReportStatus, 

@@ -25,7 +25,7 @@ export const setUserRoleInSystem = async (uid: string, role: UserRole, adminUid:
 
 export async function getAllUsersFromSystem() {
   const snapshot = await adminDb.collection('users').get();
-  return snapshot.docs.map(doc => ({
+  return snapshot.docs.map((doc: any) => ({
     uid: doc.id,
     ...doc.data()
   }));
