@@ -5,13 +5,13 @@ import { verifyAuthToken } from './middleware/auth.middleware.js';
 import { requireRole } from './middleware/role.middleware.js';
 import { handleSetUserRole, listUsersController } from './controllers/admin.controller.js';
 import { handleGetReports, handleCreateReport, handleUpdateStatus } from './controllers/reports.controller.js';
-import { adminDb } from './config/firebase.js';
+import { adminAuth, adminDb } from './config/firebase.js';
 import uploadRoutes from './routes/upload.routes.js';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// 1. CORS beállítások (egyetlen, egységes konfiguráció a middleware lánc legelején)
+// 1. CORS beállítások (egységes konfiguráció a middleware lánc legelején)
 app.use(cors({
   origin: true,
   credentials: true,
@@ -102,6 +102,37 @@ app.patch('/api/users/:uid/role', verifyAuthToken, requireRole(['super_admin']),
 });
 
 app.post('/api/admin/set-role', verifyAuthToken, requireRole(['super_admin']), handleSetUserRole);
+
+// Felhasználó végleges törlése a rendszerből (Firebase Auth + Firestore)
+app.delete('/api/users/:uid', verifyAuthToken, requireRole(['super_admin']), async (req: Request, res: Response) => {
+  try {
+    const targetUid = Array.isArray(req.params.uid) ? req.params.uid[0] : req.params.uid;
+    const callerUid = req.user?.uid;
+
+    if (!targetUid) {
+      return res.status(400).json({ success: false, error: 'Hiányzó felhasználói azonosító.' });
+    }
+
+    if (targetUid === callerUid) {
+      return res.status(400).json({ success: false, error: 'Saját magadat nem törölheted a rendszerből!' });
+    }
+
+    // 1. Törlés Firebase Auth-ból
+    try {
+      await adminAuth.deleteUser(targetUid);
+    } catch (authErr: any) {
+      console.warn('Auth user törlés figyelmeztetés:', authErr.message);
+    }
+
+    // 2. Törlés Firestore 'users' gyűjteményből
+    await adminDb.collection('users').doc(targetUid).delete();
+
+    return res.json({ success: true, message: 'Felhasználó sikeresen törölve a rendszerből.' });
+  } catch (error: any) {
+    console.error('Hiba a felhasználó törlésekor:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Hiba a törlés során.' });
+  }
+});
 
 // 5. Szerver indítása
 app.listen(PORT, '0.0.0.0', () => {
