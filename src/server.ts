@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { verifyAuthToken } from './middleware/auth.middleware.js';
 import { requireRole } from './middleware/role.middleware.js';
 import { handleSetUserRole, listUsersController } from './controllers/admin.controller.js';
@@ -10,29 +11,47 @@ import uploadRoutes from './routes/upload.routes.js';
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-app.use(cors());
-app.use('/api/upload', uploadRoutes);
-app.use(express.json());
-
-// Engedélyezzük a GitHub Pages-t és a helyi fejlesztést is
+// 1. CORS beállítások (egyetlen, egységes konfiguráció a middleware lánc legelején)
 app.use(cors({
-  origin: true, // vagy: ['https://kuriouss33.github.io', 'http://localhost:3000', 'http://localhost:5173']
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// 1. Rendszerállapot teszt
+// 2. Kéréstest (JSON body) értelmezése
+app.use(express.json());
+
+// 3. Globális Rate Limiter az összes /api végpontra
+const globalApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100, // 15 perc alatt max 100 kérés IP-címenként
+  message: {
+    success: false,
+    error: 'Túl sok kérés érkezett a szerver felé. Kérlek, próbáld újra pár perc múlva!'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api', globalApiLimiter);
+
+// 4. Útvonalak (Routes)
+
+// Rendszerállapot teszt
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', message: 'A mentő backend szerver aktív.' });
 });
 
-// 2. Bejelentések kezelése
+// Biztonságos képfeltöltés
+app.use('/api/upload', uploadRoutes);
+
+// Bejelentések kezelése
 app.get('/api/reports', handleGetReports);
 app.post('/api/reports', handleCreateReport);
 app.patch('/api/reports/:id/status', verifyAuthToken, requireRole(['verified_rescuer', 'super_admin']), handleUpdateStatus);
 
-// 3. Felhasználói profil valós szerepkörének lekérése & automatikus inicializálása
+// Felhasználói profil valós szerepkörének lekérése & automatikus inicializálása
 app.get('/api/me', verifyAuthToken, async (req: Request, res: Response) => {
   try {
     const uid = req.user?.uid;
@@ -74,7 +93,7 @@ app.get('/api/me', verifyAuthToken, async (req: Request, res: Response) => {
   }
 });
 
-// 4. Adminisztrációs végpontok (Kizárólag Super Admin számára)
+// Adminisztrációs végpontok (Kizárólag Super Admin számára)
 app.get('/api/users', verifyAuthToken, requireRole(['super_admin']), listUsersController);
 
 app.patch('/api/users/:uid/role', verifyAuthToken, requireRole(['super_admin']), (req: Request, res: Response) => {

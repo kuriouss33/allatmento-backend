@@ -1,12 +1,25 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import rateLimit from 'express-rate-limit';
 
 const router = Router();
 const upload = multer({ 
-  limits: { fileSize: 10 * 1024 * 1024 } // Maximum 10MB képméret
+  limits: { fileSize: 10 * 1024 * 1024 } // Maximum 10MB
 });
 
-router.post('/', upload.single('image'), async (req: Request, res: Response) => {
+// Rate limiter kifejezetten a képfeltöltéshez (15 perc alatt max 10 feltöltés/IP)
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: {
+    success: false,
+    error: 'Túl sok képfeltöltési kérés érkezett erről az eszközről. Kérlek, próbáld újra 15 perc múlva!'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.post('/', uploadLimiter, upload.single('image'), async (req: Request, res: Response) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'Nem érkezett képfájl.' });
@@ -17,9 +30,7 @@ router.post('/', upload.single('image'), async (req: Request, res: Response) => 
       return res.status(500).json({ success: false, error: 'ImgBB API kulcs nincs beállítva a szerveren.' });
     }
 
-    // Fájl konvertálása Base64 formátumra az ImgBB számára
     const base64Image = req.file.buffer.toString('base64');
-
     const formData = new URLSearchParams();
     formData.append('image', base64Image);
 
