@@ -7,7 +7,7 @@ import { handleGetReports, handleCreateReport, handleUpdateStatus } from './cont
 import { adminDb } from './config/firebase.js';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -75,6 +75,6 @@ app.patch('/api/users/:uid/role', verifyAuthToken, requireRole(['super_admin']),
 app.post('/api/admin/set-role', verifyAuthToken, requireRole(['super_admin']), handleSetUserRole);
 
 // 5. Szerver indítása
-app.listen(PORT, () => {
-  console.log(`🚀 Szerver elindult a következő címen: http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Állatmentő Backend szerver fut a http://0.0.0.0:${PORT} címen`);
 });
