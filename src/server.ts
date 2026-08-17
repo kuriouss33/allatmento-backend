@@ -12,6 +12,14 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 app.use(cors());
 app.use(express.json());
 
+// Engedélyezzük a GitHub Pages-t és a helyi fejlesztést is
+app.use(cors({
+  origin: true, // vagy: ['https://kuriouss33.github.io', 'http://localhost:3000', 'http://localhost:5173']
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 // 1. Rendszerállapot teszt
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', message: 'A mentő backend szerver aktív.' });
