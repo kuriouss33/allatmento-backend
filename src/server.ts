@@ -5,11 +5,13 @@ import { requireRole } from './middleware/role.middleware.js';
 import { handleSetUserRole, listUsersController } from './controllers/admin.controller.js';
 import { handleGetReports, handleCreateReport, handleUpdateStatus } from './controllers/reports.controller.js';
 import { adminDb } from './config/firebase.js';
+import uploadRoutes from './routes/upload.routes.js';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(cors());
+app.use('/api/upload', uploadRoutes);
 app.use(express.json());
 
 // Engedélyezzük a GitHub Pages-t és a helyi fejlesztést is
