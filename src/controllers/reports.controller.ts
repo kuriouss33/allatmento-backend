@@ -42,10 +42,14 @@ export const handleGetReports = async (req: Request, res: Response) => {
       const isOwner = requesterUid && (ownerId === requesterUid);
       const canSeePhone = isPrivileged || isOwner;
 
+      const rawPhone = data.telefon || data.bejelentoTelefon;
+      const hasPhone = Boolean(rawPhone && rawPhone.trim() !== '');
+
       const safeData = {
         ...data,
-        telefon: canSeePhone ? (data.telefon || data.bejelentoTelefon || null) : null,
-        bejelentoTelefon: canSeePhone ? (data.bejelentoTelefon || data.telefon || null) : null
+        hasPhone: hasPhone,
+        telefon: canSeePhone ? rawPhone : null,
+        bejelentoTelefon: canSeePhone ? rawPhone : null
       };
 
       return {
