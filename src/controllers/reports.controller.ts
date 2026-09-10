@@ -4,13 +4,40 @@ import { createReport, getReports, updateReportStatus } from '../services/report
 import { ReportStatus } from '../types/report.types.js';
 import { sendNotificationToRescuers } from '../services/email.service.js';
 
-// GET /api/reports (GDPR telefonszám-maszkolással)
+// Segédfüggvény: Determinisztikus koordináta-elmosás (kb. 300-500 m eltolás)
+function fuzzCoordinate(coord: number | undefined, seed: string, isLat: boolean): number | undefined {
+  if (coord === undefined || coord === null || isNaN(coord)) return coord;
+  // Egyszerű hash a bejelentés azonosítójából, hogy ne ugráljon minden frissítéskor
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash << 5) - hash + seed.charCodeAt(i);
+    hash |= 0;
+  }
+  const offsetMultiplier = isLat ? 0.0035 : 0.005; // ~400-500 méter szélességben és hosszúságban
+  const normalized = ((Math.abs(hash) % 1000) / 1000) - 0.5; // -0.5 és +0.5 között
+  return Number((coord + (normalized * offsetMultiplier)).toFixed(4));
+}
+
+// Segédfüggvény: Utca és házszám levágása publikus nézetben
+function generalizeAddress(cim?: string, megye?: string): string {
+  if (!cim || cim.trim() === '') {
+    return megye || 'Hozzávetőleges körzet';
+  }
+  // Ha vesszővel tagolt a cím (pl. "Budapest, Váci út 12."), csak az első tagot hagyjuk meg (város/kerület)
+  const parts = cim.split(',');
+  if (parts.length > 1) {
+    return `${parts[0].trim()} környéke`;
+  }
+  return megye || cim;
+}
+
+// GET /api/reports (GDPR telefonszám- és koordináta-maszkolással)
 export const handleGetReports = async (req: Request, res: Response) => {
   try {
     const status = req.query.status as ReportStatus | undefined;
     const reports = await getReports(status);
 
-    // 1. Megvizsgáljuk, hogy érkezett-e hitelesített token
+    // 1. Felhasználói token ellenőrzése
     let requesterUid: string | null = null;
     let isPrivileged = false;
 
@@ -21,7 +48,6 @@ export const handleGetReports = async (req: Request, res: Response) => {
         const decodedToken = await adminAuth.verifyIdToken(idToken);
         requesterUid = decodedToken.uid;
 
-        // Lekérdezzük a szerepkört a Firestore users kollekcióból
         const userDoc = await adminDb.collection('users').doc(requesterUid).get();
         if (userDoc.exists) {
           const role = userDoc.data()?.role;
@@ -33,23 +59,36 @@ export const handleGetReports = async (req: Request, res: Response) => {
       }
     }
 
-    // 2. Szerveroldali szűrés: csak mentők vagy a saját bejelentő kaphatja meg a számot
+    // 2. Szerveroldali adatmaszkolás
     const sanitizedReports = reports.map((item: any) => {
       const data = item.adat ? item.adat : item;
-      const reportId = item.id || data.id;
+      const reportId = item.id || data.id || 'seed';
       const ownerId = data.createrId;
 
       const isOwner = requesterUid && (ownerId === requesterUid);
-      const canSeePhone = isPrivileged || isOwner;
+      const canSeeExactData = isPrivileged || isOwner;
 
       const rawPhone = data.telefon || data.bejelentoTelefon;
       const hasPhone = Boolean(rawPhone && rawPhone.trim() !== '');
 
+      const originalLat = data.lat !== undefined ? Number(data.lat) : undefined;
+      const originalLon = (data.lng !== undefined ? Number(data.lng) : (data.lon !== undefined ? Number(data.lon) : undefined));
+
+      // Koordináta és cím elmosása publikus látogatóknak
+      const finalLat = canSeeExactData ? originalLat : fuzzCoordinate(originalLat, reportId, true);
+      const finalLon = canSeeExactData ? originalLon : fuzzCoordinate(originalLon, reportId, false);
+      const finalCim = canSeeExactData ? data.cim : generalizeAddress(data.cim, data.megye);
+
       const safeData = {
         ...data,
         hasPhone: hasPhone,
-        telefon: canSeePhone ? rawPhone : null,
-        bejelentoTelefon: canSeePhone ? rawPhone : null
+        telefon: canSeeExactData ? rawPhone : null,
+        bejelentoTelefon: canSeeExactData ? rawPhone : null,
+        lat: finalLat,
+        lon: finalLon,
+        lng: finalLon,
+        cim: finalCim,
+        isExactLocation: canSeeExactData
       };
 
       return {
@@ -70,7 +109,7 @@ export const handleGetReports = async (req: Request, res: Response) => {
   }
 };
 
-// POST /api/reports (Új bejelentés + Automatikus mentői e-mail riasztás)
+// POST /api/reports
 export const handleCreateReport = async (req: Request, res: Response) => {
   try {
     const {
@@ -136,7 +175,7 @@ export const handleCreateReport = async (req: Request, res: Response) => {
   }
 };
 
-// PATCH /api/reports/:id/status (Státuszváltás & Zárójelentés fotóval)
+// PATCH /api/reports/:id/status
 export const handleUpdateStatus = async (req: Request, res: Response) => {
   try {
     const reportId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
