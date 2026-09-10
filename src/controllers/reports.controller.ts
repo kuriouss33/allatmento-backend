@@ -1,14 +1,67 @@
 import { Request, Response } from 'express';
+import * as admin from 'firebase-admin';
 import { createReport, getReports, updateReportStatus } from '../services/reports.service.js';
 import { ReportStatus } from '../types/report.types.js';
 import { sendNotificationToRescuers } from '../services/email.service.js';
 
-// GET /api/reports
+// GET /api/reports (GDPR telefonszám-maszkolással)
 export const handleGetReports = async (req: Request, res: Response) => {
   try {
     const status = req.query.status as ReportStatus | undefined;
     const reports = await getReports(status);
-    res.json({ success: true, count: reports.length, data: reports });
+
+    // 1. Megvizsgáljuk, hogy érkezett-e hitelesített token
+    let requesterUid: string | null = null;
+    let isPrivileged = false;
+
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const idToken = authHeader.split('Bearer ')[1];
+      try {
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        requesterUid = decodedToken.uid;
+
+        // Lekérdezzük a szerepkört a Firestore users kollekcióból
+        const userDoc = await admin.firestore().collection('users').doc(requesterUid).get();
+        if (userDoc.exists) {
+          const role = userDoc.data()?.role;
+          isPrivileged = (role === 'verified_rescuer' || role === 'super_admin');
+        }
+      } catch (tokenErr) {
+        requesterUid = null;
+        isPrivileged = false;
+      }
+    }
+
+    // 2. Szerveroldali szűrés: csak mentők vagy a saját bejelentő kaphatja meg a számot
+    const sanitizedReports = reports.map((item: any) => {
+      // Támogatjuk mind a lapos objektumot, mind az { id, adat } formátumot
+      const data = item.adat ? item.adat : item;
+      const reportId = item.id || data.id;
+      const ownerId = data.createrId;
+
+      const isOwner = requesterUid && (ownerId === requesterUid);
+      const canSeePhone = isPrivileged || isOwner;
+
+      const safeData = {
+        ...data,
+        telefon: canSeePhone ? (data.telefon || data.bejelentoTelefon || null) : null,
+        bejelentoTelefon: canSeePhone ? (data.bejelentoTelefon || data.telefon || null) : null
+      };
+
+      return {
+        id: reportId,
+        adat: safeData,
+        ...safeData // Hogy a meglévő backend típusokkal is 100%-ban kompatibilis maradjon
+      };
+    });
+
+    res.json({
+      success: true,
+      count: sanitizedReports.length,
+      data: sanitizedReports,
+      reports: sanitizedReports
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -62,7 +115,7 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       bejelentoNev: bejelentoNev || 'Névtelen bejelentő',
       bejelentoTelefon: finalTelefon,
       kepUrl: finalKepUrl,
-      createrId: createrId || req.user?.uid || 'anonymous'
+      createrId: createrId || (req as any).user?.uid || 'anonymous'
     });
 
     // Automatikus e-mail értesítés indítása a mentők felé
@@ -86,8 +139,8 @@ export const handleUpdateStatus = async (req: Request, res: Response) => {
   try {
     const reportId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const { status, lezarasMegjegyzes, lezarasFotoUrl } = req.body;
-    const rescuerUid = req.user?.uid || 'unknown_rescuer';
-    const rescuerName = req.user?.email || 'Mentő';
+    const rescuerUid = (req as any).user?.uid || 'unknown_rescuer';
+    const rescuerName = (req as any).user?.email || 'Mentő';
 
     if (!reportId) {
       return res.status(400).json({ success: false, error: 'Hiányzó bejelentés azonosító.' });
@@ -97,7 +150,6 @@ export const handleUpdateStatus = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Hiányzó új státusz.' });
     }
 
-    // Itt adjuk át a lezárási szöveget és a fotó url-t is:
     const updated = await updateReportStatus(
       reportId,
       status,
