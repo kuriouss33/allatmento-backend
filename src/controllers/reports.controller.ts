@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import * as admin from 'firebase-admin';
+import { adminAuth, adminDb } from '../config/firebase.js';
 import { createReport, getReports, updateReportStatus } from '../services/reports.service.js';
 import { ReportStatus } from '../types/report.types.js';
 import { sendNotificationToRescuers } from '../services/email.service.js';
@@ -18,11 +18,11 @@ export const handleGetReports = async (req: Request, res: Response) => {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const idToken = authHeader.split('Bearer ')[1];
       try {
-        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        const decodedToken = await adminAuth.verifyIdToken(idToken);
         requesterUid = decodedToken.uid;
 
         // Lekérdezzük a szerepkört a Firestore users kollekcióból
-        const userDoc = await admin.firestore().collection('users').doc(requesterUid).get();
+        const userDoc = await adminDb.collection('users').doc(requesterUid).get();
         if (userDoc.exists) {
           const role = userDoc.data()?.role;
           isPrivileged = (role === 'verified_rescuer' || role === 'super_admin');
@@ -35,7 +35,6 @@ export const handleGetReports = async (req: Request, res: Response) => {
 
     // 2. Szerveroldali szűrés: csak mentők vagy a saját bejelentő kaphatja meg a számot
     const sanitizedReports = reports.map((item: any) => {
-      // Támogatjuk mind a lapos objektumot, mind az { id, adat } formátumot
       const data = item.adat ? item.adat : item;
       const reportId = item.id || data.id;
       const ownerId = data.createrId;
@@ -52,7 +51,7 @@ export const handleGetReports = async (req: Request, res: Response) => {
       return {
         id: reportId,
         adat: safeData,
-        ...safeData // Hogy a meglévő backend típusokkal is 100%-ban kompatibilis maradjon
+        ...safeData
       };
     });
 
@@ -118,7 +117,6 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       createrId: createrId || (req as any).user?.uid || 'anonymous'
     });
 
-    // Automatikus e-mail értesítés indítása a mentők felé
     sendNotificationToRescuers({
       allatFajta: finalFajta,
       megye: finalMegye,
