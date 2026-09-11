@@ -17,7 +17,8 @@ export const createReport = async (data: CreateReportDTO): Promise<Report> => {
 
   const docRef = await adminDb.collection(COLLECTION_NAME).add({
     ...newReport,
-    statusz: 'uj',
+    status: 'fuggoben',
+    statusz: 'uj', // Garantáltan szinkronban az új állapottal
     updatedAt: timestamp
   });
 
@@ -51,25 +52,29 @@ export const updateReportStatus = async (
   const docRef = adminDb.collection(COLLECTION_NAME).doc(reportId);
   const doc = await docRef.get();
 
-  if (!doc.exists) {
+  if (!docSnapExists(doc)) {
     throw new Error('A bejelentés nem található.');
   }
 
+  // A státusz normalizálása: ha a kliens felől 'uj' érkezik, átváltjuk 'fuggoben'-re
+  const normalizedStatus: ReportStatus = (status === ('uj' as any)) ? 'fuggoben' : status;
+
   const updateData: any = {
-    status,
-    statusz: status === 'fuggoben' ? 'uj' : status,
+    status: normalizedStatus,
+    statusz: normalizedStatus === 'fuggoben' ? 'uj' : normalizedStatus,
     updatedAt: new Date().toISOString()
   };
 
-  if (status === 'folyamatban') {
+  if (normalizedStatus === 'folyamatban') {
     updateData.rescuerUid = rescuerUid;
     updateData.rescuerName = rescuerName || 'Mentő';
     updateData.vallaloId = rescuerUid;
-  } else if (status === 'megoldva') {
+  } else if (normalizedStatus === 'megoldva') {
     updateData.resolvedAt = new Date().toISOString();
     if (lezarasMegjegyzes) updateData.lezarasMegjegyzes = lezarasMegjegyzes;
     if (lezarasFotoUrl) updateData.lezarasFotoUrl = lezarasFotoUrl;
-  } else if (status === 'fuggoben') {
+  } else if (normalizedStatus === 'fuggoben') {
+    // Itt fut le a vállalás visszamondása vagy újranyitása
     updateData.rescuerUid = null;
     updateData.rescuerName = null;
     updateData.vallaloId = null;
@@ -80,3 +85,8 @@ export const updateReportStatus = async (
   await docRef.update(updateData);
   return { id: reportId, ...updateData };
 };
+
+// Segéd a típushelyes Firestore snapshot létezés ellenőrzéshez
+function docSnapExists(doc: any): boolean {
+  return typeof doc.exists === 'function' ? doc.exists() : Boolean(doc.exists);
+}
