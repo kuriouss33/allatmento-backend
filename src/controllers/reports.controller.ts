@@ -4,31 +4,32 @@ import { createReport, getReports, updateReportStatus } from '../services/report
 import { ReportStatus } from '../types/report.types.js';
 import { sendNotificationToRescuers } from '../services/email.service.js';
 
-// Segédfüggvény: Determinisztikus koordináta-elmosás (kb. 300-500 m eltolás)
+// Segédfüggvény: Determinisztikus koordináta-elmosás (kb. 80-100 m eltolás)
 function fuzzCoordinate(coord: number | undefined, seed: string, isLat: boolean): number | undefined {
   if (coord === undefined || coord === null || isNaN(coord)) return coord;
-  // Egyszerű hash a bejelentés azonosítójából, hogy ne ugráljon minden frissítéskor
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
     hash = (hash << 5) - hash + seed.charCodeAt(i);
     hash |= 0;
   }
-  const offsetMultiplier = isLat ? 0.0035 : 0.005; // ~400-500 méter szélességben és hosszúságban
-  const normalized = ((Math.abs(hash) % 1000) / 1000) - 0.5; // -0.5 és +0.5 között
-  return Number((coord + (normalized * offsetMultiplier)).toFixed(4));
+  const offsetMultiplier = isLat ? 0.0008 : 0.0011; // ~80-100 méter szélességben és hosszúságban
+  const normalized = ((Math.abs(hash) % 1000) / 1000) - 0.5;
+  return Number((coord + (normalized * offsetMultiplier)).toFixed(5));
 }
 
-// Segédfüggvény: Utca és házszám levágása publikus nézetben
+// Segédfüggvény: Házszám levágása publikus nézetben (város + utcanév megmarad)
 function generalizeAddress(cim?: string, megye?: string): string {
   if (!cim || cim.trim() === '') {
     return megye || 'Hozzávetőleges körzet';
   }
-  // Ha vesszővel tagolt a cím (pl. "Budapest, Váci út 12."), csak az első tagot hagyjuk meg (város/kerület)
-  const parts = cim.split(',');
-  if (parts.length > 1) {
-    return `${parts[0].trim()} környéke`;
-  }
-  return megye || cim;
+
+  // Eltávolítja a házszámot a cím végéről (pl. "Budapest, Kossuth Lajos utca 45/B." -> "Budapest, Kossuth Lajos utca környéke")
+  const utcaHazszamNelkul = cim
+    .replace(/\s+\d+[\s\S]*$/, '') // Levágja a számokat és az utána lévő betűket/lépcsőházat
+    .replace(/[,\.\s]+$/, '')        // Levágja a felesleges vesszőt és pontot a végéről
+    .trim();
+
+  return utcaHazszamNelkul ? `${utcaHazszamNelkul} környéke` : (megye || 'Hozzávetőleges körzet');
 }
 
 // GET /api/reports (GDPR telefonszám- és koordináta-maszkolással)
@@ -203,5 +204,55 @@ export const handleUpdateStatus = async (req: Request, res: Response) => {
     res.json({ success: true, data: updated });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// DELETE /api/reports/:id
+export const handleDeleteReport = async (req: Request, res: Response) => {
+  try {
+    const reportId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { createrId } = req.body;
+
+    if (!reportId) {
+      return res.status(400).json({ success: false, error: 'Hiányzó bejelentés azonosító.' });
+    }
+
+    const docRef = adminDb.collection('bejelentesek').doc(reportId);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists) {
+      return res.status(404).json({ success: false, error: 'A bejelentés nem található.' });
+    }
+
+    const reportData = docSnap.data();
+
+    let requesterUid: string | null = null;
+    let isSuperAdmin = false;
+
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const decodedToken = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
+        requesterUid = decodedToken.uid;
+        const userDoc = await adminDb.collection('users').doc(requesterUid).get();
+        if (userDoc.exists && userDoc.data()?.role === 'super_admin') {
+          isSuperAdmin = true;
+        }
+      } catch (err) {
+        // Hibás vagy lejárt token
+      }
+    }
+
+    const isOwner = (requesterUid && reportData?.createrId === requesterUid) ||
+                    (createrId && reportData?.createrId === createrId);
+
+    if (!isSuperAdmin && !isOwner) {
+      return res.status(403).json({ success: false, error: 'Nincs jogosultságod törölni ezt a bejelentést.' });
+    }
+
+    await docRef.delete();
+    return res.json({ success: true, message: 'Bejelentés sikeresen törölve.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
