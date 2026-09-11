@@ -45,6 +45,29 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', message: 'A mento backend szerver aktiv.' });
 });
 
+// Uj felhasznalo profiljanak azonnali rogzitese regisztraciokor (jogosultsagi hibak kivedese)
+app.post('/api/auth/register-profile', async (req: Request, res: Response) => {
+  try {
+    const { uid, email } = req.body;
+
+    if (!uid || !email) {
+      return res.status(400).json({ success: false, error: 'Hianyzo UID vagy e-mail cim.' });
+    }
+
+    await adminDb.collection('users').doc(uid).set({
+      email: email,
+      role: 'public',
+      status: 'pending_approval',
+      createdAt: new Date().toISOString()
+    }, { merge: true });
+
+    return res.json({ success: true, message: 'Felhasznaloi profil sikeresen letrehozva.' });
+  } catch (error: any) {
+    console.error('Hiba a regisztracios profil mentesekor:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Szerverhiba a profil mentese soran.' });
+  }
+});
+
 // Hitelesito e-mail kuldese egyedi HTML sablonnal es Resend kezelessel
 app.post('/api/auth/send-verification', async (req: Request, res: Response) => {
   try {
@@ -134,6 +157,7 @@ app.get('/api/reports', handleGetReports);
 app.post('/api/reports', handleCreateReport);
 app.patch('/api/reports/:id/status', verifyAuthToken, requireRole(['verified_rescuer', 'super_admin']), handleUpdateStatus);
 app.delete('/api/reports/:id', handleDeleteReport);
+
 // Felhasznaloi profil valos szerepkorenek lekerese & automatikus inicializalasa
 app.get('/api/me', verifyAuthToken, async (req: Request, res: Response) => {
   try {
