@@ -4,7 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { verifyAuthToken } from './middleware/auth.middleware.js';
 import { requireRole } from './middleware/role.middleware.js';
 import { handleSetUserRole, listUsersController } from './controllers/admin.controller.js';
-import { handleGetReports, handleCreateReport, handleUpdateStatus } from './controllers/reports.controller.js';
+import { handleGetReports, handleCreateReport, handleDeleteReport, handleUpdateStatus } from './controllers/reports.controller.js';
 import { adminAuth, adminDb } from './config/firebase.js';
 import uploadRoutes from './routes/upload.routes.js';
 import { Resend } from 'resend';
@@ -133,7 +133,7 @@ app.use('/api/upload', uploadRoutes);
 app.get('/api/reports', handleGetReports);
 app.post('/api/reports', handleCreateReport);
 app.patch('/api/reports/:id/status', verifyAuthToken, requireRole(['verified_rescuer', 'super_admin']), handleUpdateStatus);
-
+app.delete('/api/reports/:id', handleDeleteReport);
 // Felhasznaloi profil valos szerepkorenek lekerese & automatikus inicializalasa
 app.get('/api/me', verifyAuthToken, async (req: Request, res: Response) => {
   try {
