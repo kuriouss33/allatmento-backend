@@ -4,6 +4,7 @@ export interface CreateReportDTO {
   allatFajta: string;
   allapot?: string;
   helyszinLeiras?: string;
+  megjegyzes_en?: string;
   megye?: string;
   cim?: string;
   lat: number;
@@ -22,4 +23,5 @@ export interface Report extends CreateReportDTO {
   rescuerName?: string | null;
   resolvedAt?: string | null;
   lezarasFotoUrl?: string | null;
+  lezaras_en?: string | null;
 }

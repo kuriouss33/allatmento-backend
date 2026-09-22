@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '../config/firebase.js';
 import { createReport, getReports, updateReportStatus } from '../services/reports.service.js';
 import { ReportStatus } from '../types/report.types.js';
 import { sendNotificationToRescuers } from '../services/email.service.js';
+import { autoTranslate } from '../services/translate.service.js';
 
 // Segédfüggvény: Determinisztikus koordináta-elmosás (kb. 80-100 m eltolás)
 function fuzzCoordinate(coord: number | undefined, seed: string, isLat: boolean): number | undefined {
@@ -147,10 +148,12 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       });
     }
 
+    const megjegyzesEn = await autoTranslate(finalMegjegyzes, 'en');
     const report = await createReport({
       allatFajta: finalFajta,
       allapot: allapot || 'Ismeretlen',
       helyszinLeiras: finalMegjegyzes,
+      megjegyzes_en: megjegyzesEn, // Elmentjük az angol verziót is
       megye: finalMegye,
       cim: cim || '',
       lat: finalLat,
@@ -192,6 +195,7 @@ export const handleUpdateStatus = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Hiányzó új státusz.' });
     }
 
+    // 1. Meglévő szerviz meghívása a szabványos 6 paraméterrel
     const updated = await updateReportStatus(
       reportId,
       status,
@@ -200,6 +204,18 @@ export const handleUpdateStatus = async (req: Request, res: Response) => {
       lezarasMegjegyzes,
       lezarasFotoUrl
     );
+
+    // 2. Ha volt lezárási szöveg, lefordítjuk és közvetlenül elmentjük angolul is
+    if (lezarasMegjegyzes && typeof lezarasMegjegyzes === 'string') {
+      try {
+        const lezarasEn = await autoTranslate(lezarasMegjegyzes, 'en');
+        await adminDb.collection('bejelentesek').doc(reportId).update({
+          lezaras_en: lezarasEn
+        });
+      } catch (transErr) {
+        console.warn('Nem sikerült lefordítani a lezárási szöveget:', transErr);
+      }
+    }
 
     res.json({ success: true, data: updated });
   } catch (error: any) {
