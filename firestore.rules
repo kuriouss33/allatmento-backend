@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Segédfüggvények
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isSuperAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.role == 'super_admin' || 
+         request.auth.token.firebase.sign_in_provider == 'custom' && request.auth.token.role == 'super_admin');
+    }
+
+    function isVerifiedRescuer() {
+      return isAuthenticated() && 
+        (request.auth.token.role == 'verified_rescuer' || request.auth.token.role == 'super_admin');
+    }
+
+    // 1. Bejelentések (bejelentesek)
+    // Megjegyzés: A publikus látogatók a backend API-n keresztül kapnak elmosott koordinátákat és rejtett telefonszámokat.
+    // Közvetlen Firestore olvasást csak ellenőrzött mentőknek engedélyezünk a GDPR és állatvédelmi kockázatok miatt.
+    match /bejelentesek/{reportId} {
+      allow read: if isVerifiedRescuer();
+      
+      // Létrehozás és törlés kizárólag a backend Admin SDK-n keresztül futhat
+      allow create, delete: if false;
+      
+      // Státuszváltás Firestore-ból közvetlenül csak hitelesített mentőnek
+      allow update: if isVerifiedRescuer();
+    }
+
+    // 2. Menhelyek és Szervezetek (szervezetek)
+    match /szervezetek/{orgId} {
+      // Nyilvános információs lista, bárki olvashatja
+      allow read: if true;
+      // Csak adminisztrátor módosíthatja
+      allow write: if isSuperAdmin();
+    }
+
+    // 3. Felhasználói profilok (users)
+    match /users/{userId} {
+      // Mindenki csak a saját profilját láthatja, admin mindenkit
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin());
+      // Szerepköröket és jóváhagyási státuszt kizárólag a backend állíthat be (Admin SDK)
+      allow write: if false;
+    }
+  }
+}

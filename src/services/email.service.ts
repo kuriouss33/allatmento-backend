@@ -55,6 +55,15 @@ interface ReportNotificationData {
   lon?: number;
 }
 
+function escapeHtml(str: string): string {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 export async function sendNotificationToRescuers(report: ReportNotificationData) {
   try {
     const activeTransporter = await getTransporter();
@@ -75,24 +84,36 @@ export async function sendNotificationToRescuers(report: ReportNotificationData)
 
     if (recipientEmails.length === 0) return;
 
-    const mapsUrl = (report.lat && report.lon)
-      ? `https://www.google.com/maps?q=${report.lat},${report.lon}`
-      : 'Nincs megadva';
+    const cleanMegye = escapeHtml(report.megye);
+    const cleanAllatFajta = escapeHtml(report.allatFajta);
+    const cleanMegjegyzes = escapeHtml(report.megjegyzes || 'Nincs külön megjegyzés');
+    const cleanTelefon = escapeHtml(report.telefon || 'Nincs megadva');
+
+    const validLat = typeof report.lat === 'number' && !isNaN(report.lat) ? report.lat : null;
+    const validLon = typeof report.lon === 'number' && !isNaN(report.lon) ? report.lon : null;
+    const mapsUrl = (validLat !== null && validLon !== null)
+      ? `https://www.google.com/maps?q=${validLat},${validLon}`
+      : null;
+
+    const mapsHtml = mapsUrl
+      ? `<div style="margin: 25px 0;">
+           <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" style="background: #2563eb; color: white; padding: 12px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">📍 Megnyitás a Google Térképen</a>
+         </div>`
+      : '';
 
     const mailOptions = {
       from: '"Állatmentő Portál Riasztás" <riasztas@allatmento.hu>',
-      to: recipientEmails.join(', '),
-      subject: `🚨 ÚJ MENTÉSI ESET [${report.megye}] - ${report.allatFajta}`,
+      to: 'riasztas@allatmento.hu', // Nem tárja fel a címzetteket (GDPR védelem)
+      bcc: recipientEmails,          // Titkos másolat
+      subject: `🚨 ÚJ MENTÉSI ESET [${cleanMegye}] - ${cleanAllatFajta}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
           <h2 style="color: #ef4444; margin-top: 0;">🚨 Új Állatmentési Bejelentés Érkezett!</h2>
-          <p style="font-size: 14px; color: #334155;"><b>Érintett régió:</b> ${report.megye}</p>
-          <p style="font-size: 14px; color: #334155;"><b>Állatfajta:</b> ${report.allatFajta}</p>
-          <p style="font-size: 14px; color: #334155;"><b>Leírás / Helyzet:</b> ${report.megjegyzes || 'Nincs külön megjegyzés'}</p>
-          <p style="font-size: 14px; color: #334155;"><b>Bejelentő telefonszáma:</b> ${report.telefon || 'Nincs megadva'}</p>
-          <div style="margin: 25px 0;">
-            <a href="${mapsUrl}" target="_blank" style="background: #2563eb; color: white; padding: 12px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">📍 Megnyitás a Google Térképen</a>
-          </div>
+          <p style="font-size: 14px; color: #334155;"><b>Érintett régió:</b> ${cleanMegye}</p>
+          <p style="font-size: 14px; color: #334155;"><b>Állatfajta:</b> ${cleanAllatFajta}</p>
+          <p style="font-size: 14px; color: #334155;"><b>Leírás / Helyzet:</b> ${cleanMegjegyzes}</p>
+          <p style="font-size: 14px; color: #334155;"><b>Bejelentő telefonszáma:</b> ${cleanTelefon}</p>
+          ${mapsHtml}
           <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
           <small style="color: #94a3b8;">Ez egy automatikus értesítés a hitelesített mentők részére.</small>
         </div>
@@ -100,7 +121,7 @@ export async function sendNotificationToRescuers(report: ReportNotificationData)
     };
 
     const info = await activeTransporter.sendMail(mailOptions);
-    console.log(`✉️ Riasztó e-mail sikeresen elküldve (${recipientEmails.length} címzettnek).`);
+    console.log(`✉️ Riasztó e-mail sikeresen elküldve (${recipientEmails.length} címzettnek titkos másolatban).`);
     
     const previewUrl = nodemailer.getTestMessageUrl(info);
     if (previewUrl) console.log(`🔗 E-mail előnézet: ${previewUrl}`);

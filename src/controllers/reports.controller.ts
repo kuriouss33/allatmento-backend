@@ -4,6 +4,8 @@ import { createReport, getReports, updateReportStatus } from '../services/report
 import { ReportStatus } from '../types/report.types.js';
 import { sendNotificationToRescuers } from '../services/email.service.js';
 import { autoTranslate } from '../services/translate.service.js';
+import crypto from 'crypto';
+import { FieldValue } from 'firebase-admin/firestore';
 
 // Segédfüggvény: Determinisztikus koordináta-elmosás (kb. 80-100 m eltolás)
 function fuzzCoordinate(coord: number | undefined, seed: string, isLat: boolean): number | undefined {
@@ -36,7 +38,12 @@ function generalizeAddress(cim?: string, megye?: string): string {
 // GET /api/reports (GDPR telefonszám- és koordináta-maszkolással)
 export const handleGetReports = async (req: Request, res: Response) => {
   try {
-    const status = req.query.status as ReportStatus | undefined;
+    const rawStatus = req.query.status as string | undefined;
+    const allowedStatuses: ReportStatus[] = ['fuggoben', 'folyamatban', 'megoldva'];
+    const status = (rawStatus && allowedStatuses.includes(rawStatus as ReportStatus)) 
+      ? (rawStatus as ReportStatus) 
+      : undefined;
+
     const reports = await getReports(status);
 
     // 1. Felhasználói token ellenőrzése
@@ -81,8 +88,24 @@ export const handleGetReports = async (req: Request, res: Response) => {
       const finalLon = canSeeExactData ? originalLon : fuzzCoordinate(originalLon, reportId, false);
       const finalCim = canSeeExactData ? data.cim : generalizeAddress(data.cim, data.megye);
 
+      // GDPR védelem az önkéntesek telefonszámaira a kommentekben
+      let safeKommentek = data.kommentek;
+      if (Array.isArray(safeKommentek)) {
+        safeKommentek = safeKommentek.map((k: any) => {
+          if (!canSeeExactData && k && k.isHelpOffer) {
+            return {
+              ...k,
+              phone: null,
+              szoveg: '🤝 Segítő jelentkezett erre a mentésre (elérhetőség a mentők számára látható).'
+            };
+          }
+          return k;
+        });
+      }
+
       const safeData = {
         ...data,
+        kommentek: safeKommentek,
         hasPhone: hasPhone,
         telefon: canSeeExactData ? rawPhone : null,
         bejelentoTelefon: canSeeExactData ? rawPhone : null,
@@ -92,6 +115,9 @@ export const handleGetReports = async (req: Request, res: Response) => {
         cim: finalCim,
         isExactLocation: canSeeExactData
       };
+
+      // A titkos törlési kulcs soha nem kerülhet a publikus válaszba
+      delete safeData.deleteToken;
 
       return {
         id: reportId,
@@ -148,12 +174,28 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       });
     }
 
+    // Ha van hitelesített token a kérésben, abból vesszük a valódi létrehozó UID-t
+    let verifiedCreatorUid: string | null = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
+        verifiedCreatorUid = decoded.uid;
+      } catch (tokenErr) {
+        // Hibás vagy lejárt token
+      }
+    }
+
+    // Titkos törlési token generálása (biztonságos törléshez unauthenticated állapotban)
+    const deleteToken = crypto.randomBytes(24).toString('hex');
+    const finalCreaterId = verifiedCreatorUid || createrId || 'anonymous';
+
     const megjegyzesEn = await autoTranslate(finalMegjegyzes, 'en');
     const report = await createReport({
       allatFajta: finalFajta,
       allapot: allapot || 'Ismeretlen',
       helyszinLeiras: finalMegjegyzes,
-      megjegyzes_en: megjegyzesEn, // Elmentjük az angol verziót is
+      megjegyzes_en: megjegyzesEn,
       megye: finalMegye,
       cim: cim || '',
       lat: finalLat,
@@ -161,7 +203,8 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       bejelentoNev: bejelentoNev || 'Névtelen bejelentő',
       bejelentoTelefon: finalTelefon,
       kepUrl: finalKepUrl,
-      createrId: createrId || (req as any).user?.uid || 'anonymous'
+      createrId: finalCreaterId,
+      deleteToken: deleteToken
     });
 
     sendNotificationToRescuers({
@@ -173,7 +216,8 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       lon: finalLon
     }).catch((err) => console.error('E-mail küldési hiba a háttérben:', err));
 
-    res.status(201).json({ success: true, data: report });
+    // A választ visszaküldő fél megkapja a deleteTokent a későbbi biztonságos törléshez
+    res.status(201).json({ success: true, data: report, deleteToken: deleteToken });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -223,11 +267,11 @@ export const handleUpdateStatus = async (req: Request, res: Response) => {
   }
 };
 
-// DELETE /api/reports/:id
+// DELETE /api/reports/:id (IDOR védelem: szigorú token vagy deleteToken ellenőrzés)
 export const handleDeleteReport = async (req: Request, res: Response) => {
   try {
     const reportId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { createrId } = req.body;
+    const clientDeleteToken = (req.headers['x-delete-token'] as string) || req.body?.deleteToken;
 
     if (!reportId) {
       return res.status(400).json({ success: false, error: 'Hiányzó bejelentés azonosító.' });
@@ -259,15 +303,111 @@ export const handleDeleteReport = async (req: Request, res: Response) => {
       }
     }
 
-    const isOwner = (requesterUid && reportData?.createrId === requesterUid) ||
-                    (createrId && reportData?.createrId === createrId);
+    // 1. Super admin bármelyik bejelentést törölheti
+    // 2. A hitelesített tulajdonos törölheti saját bejelentését
+    // 3. A létrehozáskor kapott titkos deleteToken birtokosa törölheti
+    const isOwnerByAuth = Boolean(requesterUid && reportData?.createrId === requesterUid);
+    const isOwnerBySecret = Boolean(clientDeleteToken && reportData?.deleteToken && clientDeleteToken === reportData.deleteToken);
 
-    if (!isSuperAdmin && !isOwner) {
+    if (!isSuperAdmin && !isOwnerByAuth && !isOwnerBySecret) {
       return res.status(403).json({ success: false, error: 'Nincs jogosultságod törölni ezt a bejelentést.' });
     }
 
     await docRef.delete();
     return res.json({ success: true, message: 'Bejelentés sikeresen törölve.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// POST /api/reports/:id/help-offer (Biztonságos önkéntes segítség felajánlás)
+export const handleHelpOffer = async (req: Request, res: Response) => {
+  try {
+    const reportId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { name, phone, message } = req.body;
+
+    if (!reportId) {
+      return res.status(400).json({ success: false, error: 'Hiányzó bejelentés azonosító.' });
+    }
+
+    if (!name || !phone) {
+      return res.status(400).json({ success: false, error: 'A név és a telefonszám megadása kötelező.' });
+    }
+
+    const docRef = adminDb.collection('bejelentesek').doc(reportId);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists) {
+      return res.status(404).json({ success: false, error: 'A bejelentés nem található.' });
+    }
+
+    let callerUid = 'volunteer_' + Math.random().toString(36).substring(2, 9);
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader.split('Bearer ')[1]);
+        callerUid = decoded.uid;
+      } catch (err) {}
+    }
+
+    const segitoUzenet = `🤝 SEGÍTŐ JELENTKEZETT!\nNév: ${name}\nTelefon: ${phone}${message ? `\nÜzenet: ${message}` : ''}`;
+    const ujKommentObj = {
+      userId: callerUid,
+      userName: name,
+      phone: phone,
+      szoveg: segitoUzenet,
+      isHelpOffer: true,
+      idopont: new Date().toISOString()
+    };
+
+    await docRef.update({
+      kommentek: FieldValue.arrayUnion(ujKommentObj)
+    });
+
+    return res.json({ success: true, message: 'Segítség felajánlása sikeresen rögzítve.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// POST /api/reports/:id/comments (Biztonságos belső üzenetküldés ellenőrzött feleknek)
+export const handleAddComment = async (req: Request, res: Response) => {
+  try {
+    const reportId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { szoveg } = req.body;
+    const callerUid = (req as any).user?.uid;
+
+    if (!reportId || !szoveg || typeof szoveg !== 'string' || szoveg.trim() === '') {
+      return res.status(400).json({ success: false, error: 'Hiányzó azonosító vagy üres üzenet.' });
+    }
+
+    const docRef = adminDb.collection('bejelentesek').doc(reportId);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists) {
+      return res.status(404).json({ success: false, error: 'A bejelentés nem található.' });
+    }
+
+    const reportData = docSnap.data();
+    const isCallerSuperAdmin = (req as any).user?.role === 'super_admin';
+    const isCreator = reportData?.createrId === callerUid;
+    const isAssignee = reportData?.vallaloId === callerUid || reportData?.rescuerUid === callerUid;
+
+    if (!isCallerSuperAdmin && !isCreator && !isAssignee) {
+      return res.status(403).json({ success: false, error: 'Nincs jogosultságod üzenetet írni ehhez az ügyhöz.' });
+    }
+
+    const ujKommentObj = {
+      userId: callerUid,
+      szoveg: szoveg.trim(),
+      idopont: new Date().toISOString()
+    };
+
+    await docRef.update({
+      kommentek: FieldValue.arrayUnion(ujKommentObj)
+    });
+
+    return res.json({ success: true, message: 'Üzenet sikeresen elküldve.' });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
   }

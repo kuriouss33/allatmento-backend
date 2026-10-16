@@ -1,10 +1,18 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { verifyAuthToken } from './middleware/auth.middleware.js';
 import { requireRole } from './middleware/role.middleware.js';
 import { handleSetUserRole, listUsersController } from './controllers/admin.controller.js';
-import { handleGetReports, handleCreateReport, handleDeleteReport, handleUpdateStatus } from './controllers/reports.controller.js';
+import { 
+  handleGetReports, 
+  handleCreateReport, 
+  handleDeleteReport, 
+  handleUpdateStatus,
+  handleHelpOffer,
+  handleAddComment
+} from './controllers/reports.controller.js';
 import { adminAuth, adminDb } from './config/firebase.js';
 import uploadRoutes from './routes/upload.routes.js';
 import { Resend } from 'resend';
@@ -13,24 +21,57 @@ const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// 1. CORS beallitasok (egyseges konfiguracio a middleware lanc legelejen)
-app.use(cors({
-  origin: true,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+// 1. Biztonsági HTTP fejlécek (Helmet)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
-// 2. Kerestest (JSON body) ertelmezese
+// 2. CORS beállítások
+const defaultAllowedOrigins = [
+  'https://allatmento-app.firebaseapp.com',
+  'https://allatmento-app.web.app',
+  'https://kuriouss33.github.io',
+  'http://localhost:3000',
+  'http://localhost:5500',
+  'http://127.0.0.1:5500',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:8080',
+  'http://127.0.0.1:8080'
+];
+
+if (process.env.CORS_ALLOWED_ORIGINS) {
+  const extra = process.env.CORS_ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
+  defaultAllowedOrigins.push(...extra);
+}
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || 
+        defaultAllowedOrigins.includes(origin) || 
+        origin.endsWith('.firebaseapp.com') || 
+        origin.endsWith('.web.app') || 
+        origin.endsWith('.github.io')) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS házirend megtagadta a hozzáférést a következő forrásból: ${origin}`));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-delete-token']
+}));
+
+// 3. Kéréstest (JSON body) értelmezése
 app.use(express.json());
 
-// 3. Globalis Rate Limiter az osszes /api vegpontra
+// 4. Globális Rate Limiter az összes /api végpontra
 const globalApiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100, // 15 perc alatt max 100 keres IP-cimenkent
+  max: 150, // 15 perc alatt max 150 kérés IP-címenként
   message: {
     success: false,
-    error: 'Tul sok keres erkezett a szerver fele. Kerlek, probald ujra par perc mulva!'
+    error: 'Túl sok kérés érkezett a szerver felé. Kérlek, próbáld újra pár perc múlva!'
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -38,38 +79,73 @@ const globalApiLimiter = rateLimit({
 
 app.use('/api', globalApiLimiter);
 
-// 4. Utvonalak (Routes)
-
-// Rendszerallapot teszt
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok', message: 'A mento backend szerver aktiv.' });
+// Külön limiter az e-mail megerősítéshez a spamelés megelőzésére
+const verificationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5, // 15 perc alatt max 5 megerősítő email
+  message: {
+    success: false,
+    error: 'Túl sok megerősítő e-mail kérés érkezett. Kérlek, próbáld újra 15 perc múlva!'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
-// Uj felhasznalo profiljanak azonnali rogzitese regisztraciokor (jogosultsagi hibak kivedese)
+// 5. Útvonalak (Routes)
+
+// Rendszerállapot teszt
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({ status: 'ok', message: 'A mentő backend szerver aktív.' });
+});
+
+// Új felhasználó profiljának ellenőrzött rögzítése regisztrációkor
 app.post('/api/auth/register-profile', async (req: Request, res: Response) => {
   try {
     const { uid, email } = req.body;
 
-    if (!uid || !email) {
-      return res.status(400).json({ success: false, error: 'Hianyzo UID vagy e-mail cim.' });
+    if (!uid || !email || typeof email !== 'string') {
+      return res.status(400).json({ success: false, error: 'Hiányzó vagy érvénytelen UID / e-mail cím.' });
     }
 
-    await adminDb.collection('users').doc(uid).set({
-      email: email,
-      role: 'public',
-      status: 'pending_approval',
-      createdAt: new Date().toISOString()
-    }, { merge: true });
+    // Hitelesítés ellenőrzése: létezik-e az Authban a felhasználó
+    try {
+      const authUser = await adminAuth.getUser(uid);
+      if (authUser.email?.toLowerCase() !== email.toLowerCase()) {
+        return res.status(400).json({ success: false, error: 'A megadott azonosító és e-mail nem egyezik a hitelesítő rendszerben.' });
+      }
+    } catch (authLookupErr) {
+      return res.status(404).json({ success: false, error: 'A regisztrálandó fiók nem található a hitelesítési rendszerben.' });
+    }
 
-    return res.json({ success: true, message: 'Felhasznaloi profil sikeresen letrehozva.' });
+    const userDocRef = adminDb.collection('users').doc(uid);
+    const existingDoc = await userDocRef.get();
+
+    if (existingDoc.exists) {
+      const existingData = existingDoc.data();
+      await userDocRef.set({
+        email: email,
+        role: existingData?.role || 'public',
+        status: existingData?.status || 'pending_approval',
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } else {
+      await userDocRef.set({
+        email: email,
+        role: 'public',
+        status: 'pending_approval',
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    return res.json({ success: true, message: 'Felhasználói profil sikeresen rögzítve.' });
   } catch (error: any) {
-    console.error('Hiba a regisztracios profil mentesekor:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Szerverhiba a profil mentese soran.' });
+    console.error('Hiba a regisztrációs profil mentésekor:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Szerverhiba a profil mentése során.' });
   }
 });
 
-// Hitelesito e-mail kuldese egyedi HTML sablonnal es Resend kezelessel
-app.post('/api/auth/send-verification', async (req: Request, res: Response) => {
+// Hitelesítő e-mail küldése egyedi HTML sablonnal és Resend kezeléssel
+app.post('/api/auth/send-verification', verificationLimiter, async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
 
@@ -155,6 +231,8 @@ app.use('/api/upload', uploadRoutes);
 // Bejelentesek kezelese
 app.get('/api/reports', handleGetReports);
 app.post('/api/reports', handleCreateReport);
+app.post('/api/reports/:id/help-offer', handleHelpOffer);
+app.post('/api/reports/:id/comments', verifyAuthToken, handleAddComment);
 app.patch('/api/reports/:id/status', verifyAuthToken, requireRole(['verified_rescuer', 'super_admin']), handleUpdateStatus);
 app.delete('/api/reports/:id', handleDeleteReport);
 

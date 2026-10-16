@@ -13,6 +13,7 @@ export interface CreateReportDTO {
   bejelentoTelefon?: string;
   kepUrl?: string | null;
   createrId?: string;
+  deleteToken?: string;
 }
 
 export interface Report extends CreateReportDTO {
@@ -24,4 +25,5 @@ export interface Report extends CreateReportDTO {
   resolvedAt?: string | null;
   lezarasFotoUrl?: string | null;
   lezaras_en?: string | null;
+  deleteToken?: string;
 }
