@@ -21,6 +21,17 @@ const app = express();
 // Vercel proxy mögötti futás engedélyezése a rate-limiter és IP-címek helyes kezeléséhez
 app.set('trust proxy', 1);
 
+// Vercel Serverless proxy útvonal helyreállítás (ha a rewrite lecsípte vagy módosította a req.url-t)
+app.use((req, _res, next) => {
+  const matched = req.headers['x-matched-path'];
+  if (matched && typeof matched === 'string') {
+    const queryIdx = req.url.indexOf('?');
+    const queryString = queryIdx !== -1 ? req.url.substring(queryIdx) : '';
+    req.url = matched + queryString;
+  }
+  next();
+});
+
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_fallback');
 
@@ -104,7 +115,7 @@ const verificationLimiter = rateLimit({
 });
 
 // 5. Útvonalak (Routes)
-app.get('/', (_req: Request, res: Response) => {
+app.get(['/', '/api', '/api/index'], (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     message: 'Állatmentő Portál Backend szerver aktív és működik.',
