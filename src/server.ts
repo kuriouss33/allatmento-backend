@@ -289,12 +289,13 @@ app.delete('/api/reports/:id', handleDeleteReport);
 // Dinamikus szövegfordítás (magyar <-> angol)
 app.post('/api/translate', async (req: Request, res: Response) => {
   try {
-    const { text, targetLang } = req.body;
+    const { text, targetLang, fromLang } = req.body;
     if (!text || typeof text !== 'string') {
       return res.status(400).json({ success: false, error: 'Hiányzó vagy érvénytelen szöveg.' });
     }
     const to = (targetLang === 'hu' ? 'hu' : 'en') as 'en' | 'hu';
-    const translated = await autoTranslate(text, to);
+    const from = fromLang ? ((fromLang === 'hu' ? 'hu' : 'en') as 'en' | 'hu') : undefined;
+    const translated = await autoTranslate(text, to, from);
     return res.json({ success: true, original: text, translated, targetLang: to });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || 'Fordítási hiba.' });

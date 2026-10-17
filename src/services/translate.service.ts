@@ -8,16 +8,22 @@ translate.engine = 'google';
  * Ha a fordítás bármilyen hálózati okból meghiúsul, csendben visszaadja az eredeti szöveget,
  * így a bejelentés vagy a lezárás sosem akad el miatta.
  */
-export async function autoTranslate(text: string, toLang: 'en' | 'hu' = 'en'): Promise<string> {
+export async function autoTranslate(
+  text: string, 
+  toLang: 'en' | 'hu' = 'en',
+  fromLang?: 'en' | 'hu'
+): Promise<string> {
   if (!text || typeof text !== 'string' || text.trim() === '') {
     return '';
   }
 
+  const from = fromLang || (toLang === 'en' ? 'hu' : 'en');
+
   try {
-    const translated = await translate(text, { to: toLang });
+    const translated = await translate(text, { from, to: toLang });
     return translated;
   } catch (error) {
-    console.warn(`[AutoTranslate] Nem sikerült lefordítani a szöveget (${toLang}):`, error);
+    console.warn(`[AutoTranslate] Nem sikerült lefordítani a szöveget (${from} -> ${toLang}):`, error);
     return text;
   }
 }
