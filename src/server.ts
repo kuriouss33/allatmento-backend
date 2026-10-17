@@ -13,6 +13,7 @@ import {
   handleHelpOffer,
   handleAddComment
 } from './controllers/reports.controller.js';
+import { autoTranslate } from './services/translate.service.js';
 import { adminAuth, adminDb } from './config/firebase.js';
 import uploadRoutes from './routes/upload.routes.js';
 import { Resend } from 'resend';
@@ -284,6 +285,21 @@ app.post('/api/reports/:id/help-offer', handleHelpOffer);
 app.post('/api/reports/:id/comments', verifyAuthToken, handleAddComment);
 app.patch('/api/reports/:id/status', verifyAuthToken, requireRole(['verified_rescuer', 'super_admin']), handleUpdateStatus);
 app.delete('/api/reports/:id', handleDeleteReport);
+
+// Dinamikus szövegfordítás (magyar <-> angol)
+app.post('/api/translate', async (req: Request, res: Response) => {
+  try {
+    const { text, targetLang } = req.body;
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ success: false, error: 'Hiányzó vagy érvénytelen szöveg.' });
+    }
+    const to = (targetLang === 'hu' ? 'hu' : 'en') as 'en' | 'hu';
+    const translated = await autoTranslate(text, to);
+    return res.json({ success: true, original: text, translated, targetLang: to });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Fordítási hiba.' });
+  }
+});
 
 // Felhasznaloi profil valos szerepkorenek lekerese & automatikus inicializalasa
 app.get('/api/me', verifyAuthToken, async (req: Request, res: Response) => {

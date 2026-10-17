@@ -364,11 +364,18 @@ export const handleHelpOffer = async (req: Request, res: Response) => {
     }
 
     const segitoUzenet = `🤝 SEGÍTŐ JELENTKEZETT!\nNév: ${name}\nTelefon: ${phone}${message ? `\nÜzenet: ${message}` : ''}`;
+    const [uzenetEn, uzenetHu] = await Promise.all([
+      autoTranslate(segitoUzenet, 'en'),
+      autoTranslate(segitoUzenet, 'hu')
+    ]);
+
     const ujKommentObj = {
       userId: callerUid,
       userName: name,
       phone: phone,
       szoveg: segitoUzenet,
+      szoveg_en: uzenetEn,
+      szoveg_hu: uzenetHu,
       isHelpOffer: true,
       idopont: new Date().toISOString()
     };
@@ -410,9 +417,17 @@ export const handleAddComment = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'Nincs jogosultságod üzenetet írni ehhez az ügyhöz.' });
     }
 
+    const textToSave = szoveg.trim();
+    const [szovegEn, szovegHu] = await Promise.all([
+      autoTranslate(textToSave, 'en'),
+      autoTranslate(textToSave, 'hu')
+    ]);
+
     const ujKommentObj = {
       userId: callerUid,
-      szoveg: szoveg.trim(),
+      szoveg: textToSave,
+      szoveg_en: szovegEn,
+      szoveg_hu: szovegHu,
       idopont: new Date().toISOString()
     };
 
