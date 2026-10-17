@@ -28,6 +28,7 @@ app.use(helmet({
 
 // 2. CORS beállítások
 const defaultAllowedOrigins = [
+  'https://allatmento-web.vercel.app',
   'https://allatmento-app.firebaseapp.com',
   'https://allatmento-app.web.app',
   'https://kuriouss33.github.io',
@@ -45,13 +46,19 @@ if (process.env.CORS_ALLOWED_ORIGINS) {
   defaultAllowedOrigins.push(...extra);
 }
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || 
-        defaultAllowedOrigins.includes(origin) || 
-        origin.endsWith('.firebaseapp.com') || 
-        origin.endsWith('.web.app') || 
-        origin.endsWith('.github.io')) {
+const isOriginAllowed = (origin?: string): boolean => {
+  if (!origin) return true;
+  if (defaultAllowedOrigins.includes(origin)) return true;
+  if (origin.endsWith('.vercel.app')) return true;
+  if (origin.endsWith('.firebaseapp.com')) return true;
+  if (origin.endsWith('.web.app')) return true;
+  if (origin.endsWith('.github.io')) return true;
+  return false;
+};
+
+const corsOptions = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    if (isOriginAllowed(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`CORS házirend megtagadta a hozzáférést a következő forrásból: ${origin}`));
@@ -60,7 +67,10 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-delete-token']
-}));
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // 3. Kéréstest (JSON body) értelmezése
 app.use(express.json());
