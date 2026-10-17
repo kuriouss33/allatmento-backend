@@ -131,10 +131,25 @@ app.get(['/', '/api', '/api/index'], (_req: Request, res: Response) => {
 });
 
 // Rendszerállapot teszt és diagnosztika (elgépelés elleni aliasokkal)
-app.get(['/api/health', '/health', '/api/heath', '/heath'], (_req: Request, res: Response) => {
+app.get(['/api/health', '/health', '/api/heath', '/heath'], async (_req: Request, res: Response) => {
   const firebaseConfigured = !!process.env.FIREBASE_SERVICE_ACCOUNT;
-  const resendConfigured = !!process.env.RESEND_API_KEY;
+  const resendKey = process.env.RESEND_API_KEY;
+  const resendConfigured = !!resendKey;
   const imgbbConfigured = !!process.env.IMGBB_API_KEY;
+
+  let resendDiagnostics: any = null;
+  if (resendConfigured) {
+    try {
+      const client = new Resend(resendKey);
+      const domainsResult = await client.domains.list();
+      resendDiagnostics = {
+        domains: domainsResult.data?.data?.map((d: any) => ({ name: d.name, status: d.status })) || domainsResult.data || [],
+        error: domainsResult.error || null,
+      };
+    } catch (err: any) {
+      resendDiagnostics = { error: err.message || 'Hiba a Resend domainek lekérésekor.' };
+    }
+  }
 
   res.json({
     status: 'ok',
@@ -142,9 +157,11 @@ app.get(['/api/health', '/health', '/api/heath', '/heath'], (_req: Request, res:
     config: {
       firebase: firebaseConfigured,
       resend: resendConfigured,
+      resendFrom: process.env.RESEND_FROM || process.env.EMAIL_FROM || 'Allatmento Rendszer <onboarding@resend.dev>',
       imgbb: imgbbConfigured,
       nodeEnv: process.env.NODE_ENV || 'development'
-    }
+    },
+    resendDiagnostics
   });
 });
 
@@ -200,22 +217,31 @@ app.post('/api/auth/send-verification', verificationLimiter, async (req: Request
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ success: false, error: 'Az e-mail cim megadasa kotelezo.' });
+      return res.status(400).json({ success: false, error: 'Az e-mail cím megadása kötelező.' });
+    }
+
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      console.error('RESEND_API_KEY nincs beállítva a szerveren!');
+      return res.status(500).json({ success: false, error: 'A szerveren nincs beállítva a RESEND_API_KEY környezeti változó.' });
     }
 
     const verificationLink = await adminAuth.generateEmailVerificationLink(email);
+    const fromAddress = process.env.RESEND_FROM || process.env.EMAIL_FROM || 'Allatmento Rendszer <onboarding@resend.dev>';
 
-    await resend.emails.send({
-      from: 'Allatmento Rendszer <onboarding@resend.dev>',
+    console.log(`[SendVerification] Küldés indul: ${fromAddress} -> ${email}`);
+    const client = new Resend(apiKey);
+    const sendResult = await client.emails.send({
+      from: fromAddress,
       to: [email],
-      subject: 'E-mail cim megerositese - Allatmento Rendszer',
+      subject: 'E-mail cím megerősítése - Állatmentő Rendszer',
       html: `
         <!DOCTYPE html>
         <html lang="hu">
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>E-mail megerosites</title>
+          <title>E-mail megerősítés</title>
         </head>
         <body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
           <table border="0" cellpadding="0" cellspacing="0" width="100%" style="table-layout: fixed;">
@@ -224,28 +250,28 @@ app.post('/api/auth/send-verification', verificationLimiter, async (req: Request
                 <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                   <tr>
                     <td style="padding: 28px 32px; background-color: #0f172a; color: #ffffff;">
-                      <h1 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em;">Allatmento Rendszer</h1>
+                      <h1 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em;">Állatmentő Rendszer</h1>
                     </td>
                   </tr>
                   <tr>
                     <td style="padding: 32px; color: #334155; font-size: 15px; line-height: 1.6;">
                       <p style="margin-top: 0; margin-bottom: 16px; font-weight: 600; color: #0f172a; font-size: 16px;">
-                        Kedves Felhasznalo!
+                        Kedves Felhasználó!
                       </p>
                       <p style="margin-top: 0; margin-bottom: 24px;">
-                        Koszontunk a rendszerben! A fiokod aktivalasahoz es a mentoi funkciok eleresehez kerjuk, kattints az alabbi gombra az e-mail cimed megerositesehez:
+                        Köszöntünk a rendszerben! A fiókod aktiválásához és a mentői funkciók eléréséhez kérjük, kattints az alábbi gombra az e-mail címed megerősítéséhez:
                       </p>
                       <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 28px 0;">
                         <tr>
                           <td align="center">
                             <a href="${verificationLink}" target="_blank" style="display: inline-block; padding: 12px 28px; background-color: #2563eb; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 600; border-radius: 6px;">
-                              E-mail cim megerositese
+                              E-mail cím megerősítése
                             </a>
                           </td>
                         </tr>
                       </table>
                       <p style="margin: 0; font-size: 13px; color: #64748b;">
-                        Ha a fenti gomb nem mukodne, masold be ezt a hivatkozast a bongeszod cimsoraba:
+                        Ha a fenti gomb nem működne, másold be ezt a hivatkozást a böngésződ címsorába:
                       </p>
                       <p style="margin: 8px 0 0 0; font-size: 12px; word-break: break-all; color: #2563eb;">
                         <a href="${verificationLink}" style="color: #2563eb; text-decoration: underline;">${verificationLink}</a>
@@ -255,7 +281,7 @@ app.post('/api/auth/send-verification', verificationLimiter, async (req: Request
                   <tr>
                     <td style="padding: 20px 32px; background-color: #f1f5f9; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;">
                       <p style="margin: 0;">
-                        Ha nem te kezdemenyezted a regisztraciot, nyugodtan hagyd figyelmen kivul ezt az uzenetet.
+                        Ha nem te kezdeményezted a regisztrációt, nyugodtan hagyd figyelmen kívül ezt az üzenetet.
                       </p>
                     </td>
                   </tr>
@@ -268,10 +294,20 @@ app.post('/api/auth/send-verification', verificationLimiter, async (req: Request
       `
     });
 
-    return res.json({ success: true, message: 'A megerosito e-mail sikeresen elkuldve.' });
+    if (sendResult.error) {
+      console.error('[SendVerification] Resend API hiba:', sendResult.error);
+      return res.status(400).json({
+        success: false,
+        error: sendResult.error.message || 'Resend hiba az e-mail küldése során.',
+        resendError: sendResult.error
+      });
+    }
+
+    console.log(`[SendVerification] Sikeres Resend küldés! E-mail azonosító: ${sendResult.data?.id}`);
+    return res.json({ success: true, message: 'A megerősítő e-mail sikeresen elküldve.', emailId: sendResult.data?.id });
   } catch (error: any) {
-    console.error('Hiba az e-mail kuldesekor:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Sikertelen e-mail kuldes.' });
+    console.error('Hiba az e-mail küldésekor:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Sikertelen e-mail küldés.' });
   }
 });
 
