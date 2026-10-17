@@ -16,6 +16,7 @@ import {
 import { adminAuth, adminDb } from './config/firebase.js';
 import uploadRoutes from './routes/upload.routes.js';
 import { Resend } from 'resend';
+import './types/express.js';
 
 const app = express();
 // Vercel proxy mögötti futás engedélyezése a rate-limiter és IP-címek helyes kezeléséhez
@@ -285,8 +286,8 @@ app.delete('/api/reports/:id', handleDeleteReport);
 // Felhasznaloi profil valos szerepkorenek lekerese & automatikus inicializalasa
 app.get('/api/me', verifyAuthToken, async (req: Request, res: Response) => {
   try {
-    const uid = req.user?.uid;
-    const email = req.user?.email;
+    const uid = (req as any).user?.uid;
+    const email = (req as any).user?.email;
 
     if (!uid) {
       return res.status(401).json({ success: false, error: 'Azonositatlan felhasznalo.' });
@@ -337,7 +338,7 @@ app.post('/api/admin/set-role', verifyAuthToken, requireRole(['super_admin']), h
 app.delete('/api/users/:uid', verifyAuthToken, requireRole(['super_admin']), async (req: Request, res: Response) => {
   try {
     const targetUid = Array.isArray(req.params.uid) ? req.params.uid[0] : req.params.uid;
-    const callerUid = req.user?.uid;
+    const callerUid = (req as any).user?.uid;
 
     if (!targetUid) {
       return res.status(400).json({ success: false, error: 'Hianyzo felhasznaloi azonosito.' });

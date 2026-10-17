@@ -1,9 +1,10 @@
 import { Request, Response } from 'express';
 import { setUserRoleInSystem, getAllUsersFromSystem, UserRole } from '../services/users.service.js';
+import '../types/express.js';
 
 export const handleSetUserRole = async (req: Request, res: Response) => {
   const { targetUid, role } = req.body;
-  const adminUid = req.user?.uid || 'system_admin';
+  const adminUid = (req as any).user?.uid || 'system_admin';
 
   if (!targetUid || !role) {
     return res.status(400).json({

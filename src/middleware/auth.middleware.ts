@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { adminAuth } from '../config/firebase.js';
+import '../types/express.js';
 
 export const verifyAuthToken = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
@@ -15,7 +16,7 @@ export const verifyAuthToken = async (req: Request, res: Response, next: NextFun
 
   try {
     const decodedToken = await adminAuth.verifyIdToken(token);
-    req.user = decodedToken as any;
+    (req as any).user = decodedToken as any;
     next();
   } catch (error) {
     return res.status(403).json({
