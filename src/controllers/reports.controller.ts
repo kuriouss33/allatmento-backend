@@ -3,7 +3,7 @@ import { adminAuth, adminDb } from '../config/firebase.js';
 import { createReport, getReports, updateReportStatus } from '../services/reports.service.js';
 import { ReportStatus } from '../types/report.types.js';
 import { sendNotificationToRescuers } from '../services/email.service.js';
-import { autoTranslate, autoTranslateDetailed } from '../services/translate.service.js';
+import { autoTranslate, autoTranslateDetailed, detectLanguage } from '../services/translate.service.js';
 import crypto from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -190,17 +190,27 @@ export const handleCreateReport = async (req: Request, res: Response) => {
     const deleteToken = crypto.randomBytes(24).toString('hex');
     const finalCreaterId = verifiedCreatorUid || createrId || 'anonymous';
 
-    const [transEn, transHu] = await Promise.all([
-      autoTranslateDetailed(finalMegjegyzes, 'en'),
-      autoTranslateDetailed(finalMegjegyzes, 'hu')
-    ]);
+    const sourceLang = detectLanguage(finalMegjegyzes);
+    let megjegyzesEn = finalMegjegyzes;
+    let megjegyzesHu = finalMegjegyzes;
+
+    if (sourceLang === 'hu') {
+      megjegyzesHu = finalMegjegyzes;
+      const trans = await autoTranslateDetailed(finalMegjegyzes, 'en');
+      megjegyzesEn = trans.isTranslated ? trans.translated : finalMegjegyzes;
+    } else {
+      megjegyzesEn = finalMegjegyzes;
+      const trans = await autoTranslateDetailed(finalMegjegyzes, 'hu');
+      megjegyzesHu = trans.isTranslated ? trans.translated : finalMegjegyzes;
+    }
+
     const report = await createReport({
       allatFajta: finalFajta,
       allapot: allapot || 'Ismeretlen',
       helyszinLeiras: finalMegjegyzes,
-      megjegyzes_en: transEn.translated,
-      megjegyzes_hu: transHu.translated,
-      sourceLang: transEn.detectedSourceLang || 'hu',
+      megjegyzes_en: megjegyzesEn,
+      megjegyzes_hu: megjegyzesHu,
+      sourceLang: sourceLang,
       megye: finalMegye,
       cim: cim || '',
       lat: finalLat,
@@ -262,14 +272,24 @@ export const handleUpdateStatus = async (req: Request, res: Response) => {
     // 2. Ha volt lezárási szöveg, lefordítjuk és közvetlenül elmentjük mindkét nyelven
     if (lezarasMegjegyzes && typeof lezarasMegjegyzes === 'string') {
       try {
-        const [lezarasEn, lezarasHu] = await Promise.all([
-          autoTranslateDetailed(lezarasMegjegyzes, 'en'),
-          autoTranslateDetailed(lezarasMegjegyzes, 'hu')
-        ]);
+        const sourceLang = detectLanguage(lezarasMegjegyzes);
+        let lezarasEn = lezarasMegjegyzes;
+        let lezarasHu = lezarasMegjegyzes;
+
+        if (sourceLang === 'hu') {
+          lezarasHu = lezarasMegjegyzes;
+          const trans = await autoTranslateDetailed(lezarasMegjegyzes, 'en');
+          lezarasEn = trans.isTranslated ? trans.translated : lezarasMegjegyzes;
+        } else {
+          lezarasEn = lezarasMegjegyzes;
+          const trans = await autoTranslateDetailed(lezarasMegjegyzes, 'hu');
+          lezarasHu = trans.isTranslated ? trans.translated : lezarasMegjegyzes;
+        }
+
         await adminDb.collection('bejelentesek').doc(reportId).update({
-          lezaras_en: lezarasEn.translated,
-          lezaras_hu: lezarasHu.translated,
-          lezaras_sourceLang: lezarasEn.detectedSourceLang || 'hu'
+          lezaras_en: lezarasEn,
+          lezaras_hu: lezarasHu,
+          lezaras_sourceLang: sourceLang
         });
       } catch (transErr) {
         console.warn('Nem sikerült lefordítani a lezárási szöveget:', transErr);
@@ -374,19 +394,16 @@ export const handleHelpOffer = async (req: Request, res: Response) => {
     }
 
     const segitoUzenet = `🤝 SEGÍTŐ JELENTKEZETT!\nNév: ${name}\nTelefon: ${phone}${message ? `\nÜzenet: ${message}` : ''}`;
-    const [offerEn, offerHu] = await Promise.all([
-      autoTranslateDetailed(segitoUzenet, 'en'),
-      autoTranslateDetailed(segitoUzenet, 'hu')
-    ]);
+    const transEn = await autoTranslateDetailed(segitoUzenet, 'en');
 
     const ujKommentObj = {
       userId: callerUid,
       userName: name,
       phone: phone,
       szoveg: segitoUzenet,
-      szoveg_en: offerEn.translated,
-      szoveg_hu: offerHu.translated,
-      sourceLang: offerEn.detectedSourceLang || 'hu',
+      szoveg_en: transEn.isTranslated ? transEn.translated : segitoUzenet,
+      szoveg_hu: segitoUzenet,
+      sourceLang: 'hu',
       isHelpOffer: true,
       idopont: new Date().toISOString()
     };
@@ -429,17 +446,26 @@ export const handleAddComment = async (req: Request, res: Response) => {
     }
 
     const textToSave = szoveg.trim();
-    const [detailEn, detailHu] = await Promise.all([
-      autoTranslateDetailed(textToSave, 'en'),
-      autoTranslateDetailed(textToSave, 'hu')
-    ]);
+    const sourceLang = detectLanguage(textToSave);
+    let szovegEn = textToSave;
+    let szovegHu = textToSave;
+
+    if (sourceLang === 'hu') {
+      szovegHu = textToSave;
+      const trans = await autoTranslateDetailed(textToSave, 'en');
+      szovegEn = trans.isTranslated ? trans.translated : textToSave;
+    } else {
+      szovegEn = textToSave;
+      const trans = await autoTranslateDetailed(textToSave, 'hu');
+      szovegHu = trans.isTranslated ? trans.translated : textToSave;
+    }
 
     const ujKommentObj = {
       userId: callerUid,
       szoveg: textToSave,
-      szoveg_en: detailEn.translated,
-      szoveg_hu: detailHu.translated,
-      sourceLang: detailEn.detectedSourceLang || 'hu',
+      szoveg_en: szovegEn,
+      szoveg_hu: szovegHu,
+      sourceLang: sourceLang,
       idopont: new Date().toISOString()
     };
 
