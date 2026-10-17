@@ -13,7 +13,7 @@ import {
   handleHelpOffer,
   handleAddComment
 } from './controllers/reports.controller.js';
-import { autoTranslate } from './services/translate.service.js';
+import { autoTranslate, autoTranslateDetailed } from './services/translate.service.js';
 import { adminAuth, adminDb } from './config/firebase.js';
 import uploadRoutes from './routes/upload.routes.js';
 import { Resend } from 'resend';
@@ -289,14 +289,20 @@ app.delete('/api/reports/:id', handleDeleteReport);
 // Dinamikus szövegfordítás (magyar <-> angol)
 app.post('/api/translate', async (req: Request, res: Response) => {
   try {
-    const { text, targetLang, fromLang } = req.body;
+    const { text, targetLang } = req.body;
     if (!text || typeof text !== 'string') {
       return res.status(400).json({ success: false, error: 'Hiányzó vagy érvénytelen szöveg.' });
     }
     const to = (targetLang === 'hu' ? 'hu' : 'en') as 'en' | 'hu';
-    const from = fromLang ? ((fromLang === 'hu' ? 'hu' : 'en') as 'en' | 'hu') : undefined;
-    const translated = await autoTranslate(text, to, from);
-    return res.json({ success: true, original: text, translated, targetLang: to });
+    const detail = await autoTranslateDetailed(text, to);
+    return res.json({ 
+      success: true, 
+      original: detail.original, 
+      translated: detail.translated, 
+      targetLang: detail.targetLang,
+      detectedSourceLang: detail.detectedSourceLang,
+      isTranslated: detail.isTranslated
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || 'Fordítási hiba.' });
   }

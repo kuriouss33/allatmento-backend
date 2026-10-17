@@ -3,7 +3,7 @@ import { adminAuth, adminDb } from '../config/firebase.js';
 import { createReport, getReports, updateReportStatus } from '../services/reports.service.js';
 import { ReportStatus } from '../types/report.types.js';
 import { sendNotificationToRescuers } from '../services/email.service.js';
-import { autoTranslate } from '../services/translate.service.js';
+import { autoTranslate, autoTranslateDetailed } from '../services/translate.service.js';
 import crypto from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -190,12 +190,17 @@ export const handleCreateReport = async (req: Request, res: Response) => {
     const deleteToken = crypto.randomBytes(24).toString('hex');
     const finalCreaterId = verifiedCreatorUid || createrId || 'anonymous';
 
-    const megjegyzesEn = await autoTranslate(finalMegjegyzes, 'en');
+    const [transEn, transHu] = await Promise.all([
+      autoTranslateDetailed(finalMegjegyzes, 'en'),
+      autoTranslateDetailed(finalMegjegyzes, 'hu')
+    ]);
     const report = await createReport({
       allatFajta: finalFajta,
       allapot: allapot || 'Ismeretlen',
       helyszinLeiras: finalMegjegyzes,
-      megjegyzes_en: megjegyzesEn,
+      megjegyzes_en: transEn.translated,
+      megjegyzes_hu: transHu.translated,
+      sourceLang: transEn.detectedSourceLang || 'hu',
       megye: finalMegye,
       cim: cim || '',
       lat: finalLat,
@@ -254,12 +259,17 @@ export const handleUpdateStatus = async (req: Request, res: Response) => {
       lezarasFotoUrl
     );
 
-    // 2. Ha volt lezárási szöveg, lefordítjuk és közvetlenül elmentjük angolul is
+    // 2. Ha volt lezárási szöveg, lefordítjuk és közvetlenül elmentjük mindkét nyelven
     if (lezarasMegjegyzes && typeof lezarasMegjegyzes === 'string') {
       try {
-        const lezarasEn = await autoTranslate(lezarasMegjegyzes, 'en');
+        const [lezarasEn, lezarasHu] = await Promise.all([
+          autoTranslateDetailed(lezarasMegjegyzes, 'en'),
+          autoTranslateDetailed(lezarasMegjegyzes, 'hu')
+        ]);
         await adminDb.collection('bejelentesek').doc(reportId).update({
-          lezaras_en: lezarasEn
+          lezaras_en: lezarasEn.translated,
+          lezaras_hu: lezarasHu.translated,
+          lezaras_sourceLang: lezarasEn.detectedSourceLang || 'hu'
         });
       } catch (transErr) {
         console.warn('Nem sikerült lefordítani a lezárási szöveget:', transErr);
@@ -364,9 +374,9 @@ export const handleHelpOffer = async (req: Request, res: Response) => {
     }
 
     const segitoUzenet = `🤝 SEGÍTŐ JELENTKEZETT!\nNév: ${name}\nTelefon: ${phone}${message ? `\nÜzenet: ${message}` : ''}`;
-    const [uzenetEn, uzenetHu] = await Promise.all([
-      autoTranslate(segitoUzenet, 'en'),
-      autoTranslate(segitoUzenet, 'hu')
+    const [offerEn, offerHu] = await Promise.all([
+      autoTranslateDetailed(segitoUzenet, 'en'),
+      autoTranslateDetailed(segitoUzenet, 'hu')
     ]);
 
     const ujKommentObj = {
@@ -374,8 +384,9 @@ export const handleHelpOffer = async (req: Request, res: Response) => {
       userName: name,
       phone: phone,
       szoveg: segitoUzenet,
-      szoveg_en: uzenetEn,
-      szoveg_hu: uzenetHu,
+      szoveg_en: offerEn.translated,
+      szoveg_hu: offerHu.translated,
+      sourceLang: offerEn.detectedSourceLang || 'hu',
       isHelpOffer: true,
       idopont: new Date().toISOString()
     };
@@ -418,16 +429,17 @@ export const handleAddComment = async (req: Request, res: Response) => {
     }
 
     const textToSave = szoveg.trim();
-    const [szovegEn, szovegHu] = await Promise.all([
-      autoTranslate(textToSave, 'en'),
-      autoTranslate(textToSave, 'hu')
+    const [detailEn, detailHu] = await Promise.all([
+      autoTranslateDetailed(textToSave, 'en'),
+      autoTranslateDetailed(textToSave, 'hu')
     ]);
 
     const ujKommentObj = {
       userId: callerUid,
       szoveg: textToSave,
-      szoveg_en: szovegEn,
-      szoveg_hu: szovegHu,
+      szoveg_en: detailEn.translated,
+      szoveg_hu: detailHu.translated,
+      sourceLang: detailEn.detectedSourceLang || 'hu',
       idopont: new Date().toISOString()
     };
 

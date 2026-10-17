@@ -5,6 +5,8 @@ export interface CreateReportDTO {
   allapot?: string;
   helyszinLeiras?: string;
   megjegyzes_en?: string;
+  megjegyzes_hu?: string;
+  sourceLang?: string;
   megye?: string;
   cim?: string;
   lat: number;
@@ -25,5 +27,7 @@ export interface Report extends CreateReportDTO {
   resolvedAt?: string | null;
   lezarasFotoUrl?: string | null;
   lezaras_en?: string | null;
+  lezaras_hu?: string | null;
+  lezaras_sourceLang?: string | null;
   deleteToken?: string;
 }
