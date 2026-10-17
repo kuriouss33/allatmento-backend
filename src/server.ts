@@ -18,6 +18,9 @@ import uploadRoutes from './routes/upload.routes.js';
 import { Resend } from 'resend';
 
 const app = express();
+// Vercel proxy mögötti futás engedélyezése a rate-limiter és IP-címek helyes kezeléséhez
+app.set('trust proxy', 1);
+
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -327,7 +330,13 @@ app.delete('/api/users/:uid', verifyAuthToken, requireRole(['super_admin']), asy
   }
 });
 
-// 5. Szerver inditasa
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Allatmento Backend szerver fut a http://0.0.0.0:${PORT} cimen`);
-});
+// 5. Szerver inditasa (helyi fejleszteskor vagy hagyomanyos Node kornyezetben)
+if (!process.env.VERCEL) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Allatmento Backend szerver fut a http://0.0.0.0:${PORT} cimen`);
+  });
+}
+
+// Vercel Serverless Function export
+export default app;
+export { app };

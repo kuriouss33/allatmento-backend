@@ -13,7 +13,7 @@ const ALLOWED_MIME_TYPES = [
 ];
 
 const upload = multer({ 
-  limits: { fileSize: 10 * 1024 * 1024 }, // Maximum 10MB
+  limits: { fileSize: 4 * 1024 * 1024 }, // Maximum 4MB a Vercel 4.5MB-os kéréstest (body) méretkorlátjához igazítva
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_MIME_TYPES.includes(file.mimetype.toLowerCase())) {
       cb(null, true);
@@ -39,7 +39,10 @@ router.post('/', uploadLimiter, (req: Request, res: Response, next) => {
   upload.single('image')(req, res, (err: any) => {
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ success: false, error: 'A feltöltött kép túl nagy. Maximális méret: 10MB.' });
+        return res.status(400).json({ 
+          success: false, 
+          error: 'A feltöltött kép túl nagy (max. 4MB megengedett). Kérlek, használj kisebb felbontást vagy tömörített képet!' 
+        });
       }
       return res.status(400).json({ success: false, error: `Feltöltési hiba: ${err.message}` });
     } else if (err) {

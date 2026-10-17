@@ -9,10 +9,19 @@ function initializeFirebaseAdmin(): App {
     return getApp();
   }
 
-  // 1. Ha a Render.com-on környezeti változóban van megadva a JSON
+  // 1. Ha környezeti változóban van megadva a JSON (Vercel vagy Render)
   if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     try {
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      let raw = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+      // Ha base64-ként lett bemásolva a Vercel felületére, dekódoljuk
+      if (!raw.startsWith('{') && !raw.startsWith('[')) {
+        try {
+          raw = Buffer.from(raw, 'base64').toString('utf-8');
+        } catch {
+          // Ha nem base64, megpróbáljuk a nyers értéket
+        }
+      }
+      const serviceAccount = JSON.parse(raw);
       return initializeApp({
         credential: cert(serviceAccount),
       });
