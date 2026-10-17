@@ -217,7 +217,12 @@ export const handleCreateReport = async (req: Request, res: Response) => {
     }).catch((err) => console.error('E-mail küldési hiba a háttérben:', err));
 
     // A választ visszaküldő fél megkapja a deleteTokent a későbbi biztonságos törléshez
-    res.status(201).json({ success: true, data: report, deleteToken: deleteToken });
+    res.status(201).json({
+      success: true,
+      id: report.id,
+      data: report,
+      deleteToken: deleteToken
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -271,7 +276,8 @@ export const handleUpdateStatus = async (req: Request, res: Response) => {
 export const handleDeleteReport = async (req: Request, res: Response) => {
   try {
     const reportId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const clientDeleteToken = (req.headers['x-delete-token'] as string) || req.body?.deleteToken;
+    const clientDeleteToken = (req.headers['x-delete-token'] as string) || (req.body?.deleteToken as string) || (req.query?.deleteToken as string);
+    const clientAnonymousUid = (req.headers['x-anonymous-uid'] as string) || (req.body?.anonymousUid as string) || (req.query?.anonymousUid as string);
 
     if (!reportId) {
       return res.status(400).json({ success: false, error: 'Hiányzó bejelentés azonosító.' });
@@ -306,10 +312,17 @@ export const handleDeleteReport = async (req: Request, res: Response) => {
     // 1. Super admin bármelyik bejelentést törölheti
     // 2. A hitelesített tulajdonos törölheti saját bejelentését
     // 3. A létrehozáskor kapott titkos deleteToken birtokosa törölheti
+    // 4. Az anonim létrehozó a regisztrált eszköz UID (pl. user_xxx) alapján törölheti
     const isOwnerByAuth = Boolean(requesterUid && reportData?.createrId === requesterUid);
     const isOwnerBySecret = Boolean(clientDeleteToken && reportData?.deleteToken && clientDeleteToken === reportData.deleteToken);
+    const isOwnerByAnonymousUid = Boolean(
+      clientAnonymousUid &&
+      reportData?.createrId &&
+      reportData.createrId !== 'anonymous' &&
+      clientAnonymousUid === reportData.createrId
+    );
 
-    if (!isSuperAdmin && !isOwnerByAuth && !isOwnerBySecret) {
+    if (!isSuperAdmin && !isOwnerByAuth && !isOwnerBySecret && !isOwnerByAnonymousUid) {
       return res.status(403).json({ success: false, error: 'Nincs jogosultságod törölni ezt a bejelentést.' });
     }
 
