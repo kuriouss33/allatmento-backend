@@ -93,6 +93,7 @@ app.use(express.json());
 const globalApiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 150, // 15 perc alatt max 150 kérés IP-címenként
+  validate: false, // Vercel proxy mögötti ValidationError kivédése
   message: {
     success: false,
     error: 'Túl sok kérés érkezett a szerver felé. Kérlek, próbáld újra pár perc múlva!'
@@ -107,6 +108,7 @@ app.use('/api', globalApiLimiter);
 const verificationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5, // 15 perc alatt max 5 megerősítő email
+  validate: false,
   message: {
     success: false,
     error: 'Túl sok megerősítő e-mail kérés érkezett. Kérlek, próbáld újra 15 perc múlva!'
@@ -363,6 +365,16 @@ app.delete('/api/users/:uid', verifyAuthToken, requireRole(['super_admin']), asy
     console.error('Hiba a felhasznalo torlesekor:', error);
     return res.status(500).json({ success: false, error: error.message || 'Hiba a torles soran.' });
   }
+});
+
+// 6. Globalis hibakezelo middleware (megakadalyozza a Vercel 500 FUNCTION_INVOCATION_FAILED osszeomlast)
+app.use((err: any, _req: Request, res: Response, _next: any) => {
+  console.error('Elfogatlan szerverhiba:', err);
+  if (res.headersSent) return;
+  res.status(err.status || 500).json({
+    success: false,
+    error: err.message || 'Belső szerverhiba történt.'
+  });
 });
 
 // 5. Szerver inditasa (helyi fejleszteskor vagy hagyomanyos Node kornyezetben)

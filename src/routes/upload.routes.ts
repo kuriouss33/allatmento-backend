@@ -27,6 +27,7 @@ const upload = multer({
 const uploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 15,
+  validate: false,
   message: {
     success: false,
     error: 'Túl sok képfeltöltési kérés érkezett erről az eszközről. Kérlek, próbáld újra 15 perc múlva!'
