@@ -70,7 +70,6 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
 
 // 3. Kéréstest (JSON body) értelmezése
 app.use(express.json());
