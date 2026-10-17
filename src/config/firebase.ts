@@ -41,6 +41,28 @@ function initializeFirebaseAdmin(): App {
   throw new Error('Nem található érvényes Firebase hitelesítő kulcs sem környezeti változóban, sem fájlként!');
 }
 
-const app = initializeFirebaseAdmin();
-export const adminAuth = getAuth(app);
-export const adminDb = getFirestore(app);
+let _cachedApp: App | null = null;
+
+function getOrInitApp(): App {
+  if (_cachedApp) return _cachedApp;
+  _cachedApp = initializeFirebaseAdmin();
+  return _cachedApp;
+}
+
+// Biztonságos proxy export, hogy a szerver indulása (pl. /api/health ellenőrzés)
+// ne omoljon össze, ha a környezeti változók éppen frissülnek.
+export const adminAuth = new Proxy({} as ReturnType<typeof getAuth>, {
+  get(_target, prop) {
+    const auth = getAuth(getOrInitApp());
+    const val = (auth as any)[prop];
+    return typeof val === 'function' ? val.bind(auth) : val;
+  }
+});
+
+export const adminDb = new Proxy({} as ReturnType<typeof getFirestore>, {
+  get(_target, prop) {
+    const db = getFirestore(getOrInitApp());
+    const val = (db as any)[prop];
+    return typeof val === 'function' ? val.bind(db) : val;
+  }
+});

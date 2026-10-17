@@ -22,7 +22,7 @@ const app = express();
 app.set('trust proxy', 1);
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_fallback');
 
 // 1. Biztonsági HTTP fejlécek (Helmet)
 app.use(helmet({
@@ -104,10 +104,33 @@ const verificationLimiter = rateLimit({
 });
 
 // 5. Útvonalak (Routes)
+app.get('/', (_req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    message: 'Állatmentő Portál Backend szerver aktív és működik.',
+    endpoints: {
+      health: '/api/health',
+      reports: '/api/reports'
+    }
+  });
+});
 
-// Rendszerállapot teszt
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok', message: 'A mentő backend szerver aktív.' });
+// Rendszerállapot teszt és diagnosztika (elgépelés elleni aliasokkal)
+app.get(['/api/health', '/health', '/api/heath', '/heath'], (_req: Request, res: Response) => {
+  const firebaseConfigured = !!process.env.FIREBASE_SERVICE_ACCOUNT;
+  const resendConfigured = !!process.env.RESEND_API_KEY;
+  const imgbbConfigured = !!process.env.IMGBB_API_KEY;
+
+  res.json({
+    status: 'ok',
+    message: 'A mentő backend szerver aktív.',
+    config: {
+      firebase: firebaseConfigured,
+      resend: resendConfigured,
+      imgbb: imgbbConfigured,
+      nodeEnv: process.env.NODE_ENV || 'development'
+    }
+  });
 });
 
 // Új felhasználó profiljának ellenőrzött rögzítése regisztrációkor
