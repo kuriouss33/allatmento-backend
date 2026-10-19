@@ -28,8 +28,8 @@ export const handleGetTransports = async (_req: Request, res: Response) => {
 export const handleCreateTransport = async (req: Request, res: Response) => {
   try {
     const data = req.body;
-    if (!data.honnanVaros || !data.hovaVaros || !data.leiras || !data.feladoNev || !data.feladoTelefon) {
-      return res.status(400).json({ success: false, error: 'Hiányzó kötelező mezők a fuvarigényben.' });
+    if (!data.honnanVaros || !data.hovaVaros || !data.leiras || !data.feladoNev) {
+      return res.status(400).json({ success: false, error: 'Hiányzó kötelező mezők a fuvarigényben (városok, leírás, feladó neve).' });
     }
 
     const newId = data.id || `fuvar-${Date.now()}`;

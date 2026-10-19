@@ -167,7 +167,10 @@ export const getTransportsFromDb = async (): Promise<TransportJob[]> => {
 // 2. Új fuvar mentése Firestore-ba
 export const saveTransportToDb = async (job: TransportJob): Promise<TransportJob> => {
   const docRef = adminDb.collection(COLLECTION_NAME).doc(job.id);
-  await docRef.set(job);
+  const cleanJob = Object.fromEntries(
+    Object.entries(job).filter(([_, v]) => v !== undefined)
+  );
+  await docRef.set(cleanJob);
   return job;
 };
 

@@ -34,7 +34,8 @@ export interface TransportJob {
   statusz: TransportStatus;
 
   feladoNev: string;
-  feladoTelefon: string;
+  feladoTelefon?: string;
+  feladoEmail?: string;
   feladoSzervezet?: string;
   feladoUserId?: string;
   consentGiven?: boolean;

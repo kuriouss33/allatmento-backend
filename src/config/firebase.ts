@@ -59,9 +59,22 @@ export const adminAuth = new Proxy({} as ReturnType<typeof getAuth>, {
   }
 });
 
+let _cachedDb: ReturnType<typeof getFirestore> | null = null;
+
+function getOrInitDb(): ReturnType<typeof getFirestore> {
+  if (_cachedDb) return _cachedDb;
+  _cachedDb = getFirestore(getOrInitApp());
+  try {
+    _cachedDb.settings({ ignoreUndefinedProperties: true });
+  } catch {
+    // ignore
+  }
+  return _cachedDb;
+}
+
 export const adminDb = new Proxy({} as ReturnType<typeof getFirestore>, {
   get(_target, prop) {
-    const db = getFirestore(getOrInitApp());
+    const db = getOrInitDb();
     const val = (db as any)[prop];
     return typeof val === 'function' ? val.bind(db) : val;
   }
