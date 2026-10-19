@@ -13,6 +13,12 @@ import {
   handleHelpOffer,
   handleAddComment
 } from './controllers/reports.controller.js';
+import { 
+  handleGetTransports, 
+  handleCreateTransport, 
+  handleUpdateTransportStatus, 
+  handleDeleteTransport 
+} from './controllers/transports.controller.js';
 import { autoTranslate, autoTranslateDetailed } from './services/translate.service.js';
 import { adminAuth, adminDb } from './config/firebase.js';
 import uploadRoutes from './routes/upload.routes.js';
@@ -321,6 +327,12 @@ app.post('/api/reports/:id/help-offer', handleHelpOffer);
 app.post('/api/reports/:id/comments', verifyAuthToken, handleAddComment);
 app.patch('/api/reports/:id/status', verifyAuthToken, requireRole(['verified_rescuer', 'super_admin']), handleUpdateStatus);
 app.delete('/api/reports/:id', handleDeleteReport);
+
+// Fuvarborze (Transports) kezelese
+app.get('/api/transports', handleGetTransports);
+app.post('/api/transports', handleCreateTransport);
+app.patch('/api/transports/:id/status', handleUpdateTransportStatus);
+app.delete('/api/transports/:id', verifyAuthToken, handleDeleteTransport);
 
 // Dinamikus szövegfordítás (magyar <-> angol)
 app.post('/api/translate', async (req: Request, res: Response) => {

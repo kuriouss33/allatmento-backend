@@ -46,5 +46,16 @@ service cloud.firestore {
       // Szerepköröket és jóváhagyási státuszt kizárólag a backend állíthat be (Admin SDK)
       allow write: if false;
     }
+
+    // 4. Fuvarbörze (transports)
+    match /transports/{transportId} {
+      // Nyilvános olvasás és létrehozás a terepi koordinációhoz
+      allow read: if true;
+      allow create: if true;
+      // Státuszváltás megengedett
+      allow update: if true;
+      // Törlés: Super Admin jogosultsággal közvetlenül is engedélyezve
+      allow delete: if isSuperAdmin();
+    }
   }
 }
