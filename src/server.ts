@@ -328,7 +328,7 @@ app.post('/api/reports/:id/comments', verifyAuthToken, handleAddComment);
 app.patch('/api/reports/:id/status', verifyAuthToken, requireRole(['verified_rescuer', 'super_admin']), handleUpdateStatus);
 app.delete('/api/reports/:id', handleDeleteReport);
 
-// Fuvarborze (Transports) kezelese
+// Fuvarkeres (Transports) kezelese
 app.get('/api/transports', handleGetTransports);
 app.post('/api/transports', handleCreateTransport);
 app.patch('/api/transports/:id/status', handleUpdateTransportStatus);

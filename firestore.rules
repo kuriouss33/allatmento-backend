@@ -47,7 +47,7 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // 4. Fuvarbörze (transports)
+    // 4. Fuvarkérés (transports)
     match /transports/{transportId} {
       // Nyilvános olvasás és létrehozás a terepi koordinációhoz
       allow read: if true;
