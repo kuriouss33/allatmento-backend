@@ -3,7 +3,9 @@ export type ReportStatus = 'fuggoben' | 'folyamatban' | 'megoldva';
 export interface CreateReportDTO {
   allatFajta: string;
   allapot?: string;
-  helyszinLeiras?: string;
+  helyszinLeiras: string;
+  megjegyzes?: string;
+  leiras?: string;
   megjegyzes_en?: string;
   megjegyzes_hu?: string;
   sourceLang?: string;

@@ -146,6 +146,7 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       allapot,
       helyszinLeiras,
       megjegyzes,
+      leiras,
       megye,
       cim,
       lat,
@@ -161,10 +162,10 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       createrId
     } = req.body;
 
-    const finalFajta = allatFajta || fajta;
+    const finalFajta = (allatFajta || fajta || '').trim();
     const finalLat = lat !== undefined ? Number(lat) : undefined;
     const finalLon = lng !== undefined ? Number(lng) : (lon !== undefined ? Number(lon) : undefined);
-    const finalMegjegyzes = helyszinLeiras || megjegyzes || '';
+    const finalMegjegyzes = (helyszinLeiras || megjegyzes || leiras || '').trim();
     const finalTelefon = bejelentoTelefon || telefon || '';
 
     // Több kép és elsődleges kép összeállítása
@@ -183,6 +184,13 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         error: 'A fajta és a GPS koordináták (lat, lon/lng) megadása kötelező.'
+      });
+    }
+
+    if (!finalMegjegyzes) {
+      return res.status(400).json({
+        success: false,
+        error: 'A leírás megadása kötelező az állat állapotáról és a helyszínről.'
       });
     }
 
@@ -220,6 +228,8 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       allatFajta: finalFajta,
       allapot: allapot || 'Ismeretlen',
       helyszinLeiras: finalMegjegyzes,
+      megjegyzes: finalMegjegyzes,
+      leiras: finalMegjegyzes,
       megjegyzes_en: megjegyzesEn,
       megjegyzes_hu: megjegyzesHu,
       sourceLang: sourceLang,
