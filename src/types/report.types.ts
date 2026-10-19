@@ -14,6 +14,8 @@ export interface CreateReportDTO {
   bejelentoNev?: string;
   bejelentoTelefon?: string;
   kepUrl?: string | null;
+  kepek?: string[];
+  kepekUrl?: string[];
   createrId?: string;
   deleteToken?: string;
 }

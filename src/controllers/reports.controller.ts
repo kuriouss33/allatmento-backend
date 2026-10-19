@@ -156,6 +156,8 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       telefon,
       kepUrl,
       fotoUrl,
+      kepek,
+      kepekUrl,
       createrId
     } = req.body;
 
@@ -164,7 +166,17 @@ export const handleCreateReport = async (req: Request, res: Response) => {
     const finalLon = lng !== undefined ? Number(lng) : (lon !== undefined ? Number(lon) : undefined);
     const finalMegjegyzes = helyszinLeiras || megjegyzes || '';
     const finalTelefon = bejelentoTelefon || telefon || '';
-    const finalKepUrl = kepUrl || fotoUrl || null;
+
+    // Több kép és elsődleges kép összeállítása
+    const rawKepek = Array.isArray(kepek) 
+      ? kepek 
+      : (Array.isArray(kepekUrl) ? kepekUrl : []);
+    const finalKepek: string[] = rawKepek.filter((k: any) => typeof k === 'string' && k.trim().length > 0);
+    const finalKepUrl = kepUrl || fotoUrl || (finalKepek.length > 0 ? finalKepek[0] : null);
+    if (finalKepUrl && !finalKepek.includes(finalKepUrl)) {
+      finalKepek.unshift(finalKepUrl);
+    }
+
     const finalMegye = megye || 'Ismeretlen';
 
     if (!finalFajta || finalLat === undefined || finalLon === undefined) {
@@ -218,6 +230,8 @@ export const handleCreateReport = async (req: Request, res: Response) => {
       bejelentoNev: bejelentoNev || 'Névtelen bejelentő',
       bejelentoTelefon: finalTelefon,
       kepUrl: finalKepUrl,
+      kepek: finalKepek,
+      kepekUrl: finalKepek,
       createrId: finalCreaterId,
       deleteToken: deleteToken
     });
